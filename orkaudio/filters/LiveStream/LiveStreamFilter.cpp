@@ -63,17 +63,17 @@ void LiveStreamFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
             LOG4CXX_ERROR(s_log, logMsg);
             return;
         }
-        std::fill_n(silentChannelBuffer, inputDetails.m_numBytes, 0);
+        std::fill_n(silentChannelBuffer, inputDetails.m_numBytes, 255);
     }
 
     if (status) {
         if (inputDetails.m_channel == headChannel) {
-            if (auto elem = bufferQueue.put(inputBuffer)){
-                PushToRTMP(inputDetails, silentChannelBuffer, *elem);
+            if (auto elem = bufferQueue.put(inputAudioChunk)){
+                PushToRTMP(inputDetails, silentChannelBuffer, (char *)(*elem)->m_pBuffer);
             }
         } else {
             if (auto elem = bufferQueue.get()){
-                PushToRTMP(inputDetails, inputBuffer, *elem);
+                PushToRTMP(inputDetails, inputBuffer, (char *)(*elem)->m_pBuffer);
             } else {
                 PushToRTMP(inputDetails, inputBuffer, silentChannelBuffer);
             }
