@@ -45,6 +45,7 @@ class DLL_IMPORT_EXPORT_ORKBASE LiveStreamFilter : public Filter {
         bool m_initialized;
         CStdString m_callId;
         CStdString m_orkRefId;
+        CStdString m_orkUid;
         bool status = false;
         bool isFirstPacket = true;
         unsigned char headChannel;

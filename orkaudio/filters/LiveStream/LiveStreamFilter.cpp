@@ -229,6 +229,10 @@ void LiveStreamFilter::CaptureEventIn(CaptureEventRef & event) {
         m_callId = event->m_value;
     }
 
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtOrkUid) {
+        m_orkUid = event->m_value;
+    }
+
     if (
         (event->m_type == CaptureEvent::EventTypeEnum::EtCallId && shouldStreamAllCalls) ||
         (event->m_type == CaptureEvent::EventTypeEnum::EtKeyValue && event->m_key == "LiveStream" && event->m_value == "start" && !shouldStreamAllCalls)
@@ -239,7 +243,12 @@ void LiveStreamFilter::CaptureEventIn(CaptureEventRef & event) {
             LOG4CXX_ERROR(s_log, logMsg);
             return;
         }
-        std::string url = "rtmp://" + LIVESTREAMCONFIG.m_rtmpServerEndpoint + "/" + m_callId;
+        if (m_orkUid.empty()) {
+            logMsg.Format("LiveStream:: Start[%s] Failed for Empty Ork UID", m_orkUid);
+            LOG4CXX_ERROR(s_log, logMsg);
+            return;
+        }
+        std::string url = "rtmp://" + LIVESTREAMCONFIG.m_rtmpServerEndpoint + "/" + m_callId + "?orkuid=" + m_orkUid;
 
         logMsg.Format("LiveStream:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
         LOG4CXX_INFO(s_log, logMsg);
