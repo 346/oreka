@@ -233,6 +233,21 @@ void LiveStreamFilter::CaptureEventIn(CaptureEventRef & event) {
     if (event->m_type == CaptureEvent::EventTypeEnum::EtOrkUid) {
         m_orkUid = event->m_value;
     }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtDirection) {
+        m_direction = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtLocalParty) {
+        m_localParty = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtRemoteParty) {
+        m_remoteParty = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtLocalIp) {
+        m_localIp = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtRemoteIp) {
+        m_remoteIp = event->m_value;
+    }
 
     if (
         (event->m_type == CaptureEvent::EventTypeEnum::EtCallId && shouldStreamAllCalls) ||
@@ -249,7 +264,27 @@ void LiveStreamFilter::CaptureEventIn(CaptureEventRef & event) {
             LOG4CXX_ERROR(s_log, logMsg);
             return;
         }
-        std::string url = "rtmp://" + LIVESTREAMCONFIG.m_rtmpServerEndpoint + "/" + m_callId + "?orkuid=" + m_orkUid;
+        const uuid streamingUuid = random_generator()();
+        auto liveStreamingId = boost::lexical_cast<std::string>(streamingUuid);
+        std::string url = "rtmp://" ;
+        url += LIVESTREAMCONFIG.m_rtmpServerEndpoint;
+        url += "/";
+        url += liveStreamingId;
+        url += "?orkuid=";
+        url += m_orkUid;
+        url += "&nativecallid=";
+        url += m_callId;
+        url += "&localparty=";
+        url += m_localParty;
+        url += "&remoteparty=";
+        url += m_remoteParty;
+        url += "&remoteip=";
+        url += m_remoteIp;
+        url += "&localip=";
+        url += m_localIp;
+        url += "&direction=";
+        url += m_direction;
+
 
         logMsg.Format("LiveStream:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
         LOG4CXX_INFO(s_log, logMsg);
