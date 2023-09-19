@@ -74,17 +74,18 @@ void LiveStreamFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
         char *secondBuffer;
         char *leftBuffer;
         char *rightBuffer;
+        boost::optional<AudioChunkRef> queuedChunk;
         if (inputDetails.m_channel == headChannel) {
-            if (auto elem = bufferQueue.put(inputAudioChunk)){
+            if (queuedChunk = bufferQueue.put(inputAudioChunk)){
                 firstBuffer = silentChannelBuffer;
-                secondBuffer = (char *)(*elem)->m_pBuffer;
+                secondBuffer = (char *)(*queuedChunk)->m_pBuffer;
             } else {
                 return;
             }
         } else {
-            if (auto elem = bufferQueue.get()){
+            if (queuedChunk = bufferQueue.get()){
                 firstBuffer = inputBuffer;
-                secondBuffer = (char *)(*elem)->m_pBuffer;
+                secondBuffer = (char *)(*queuedChunk)->m_pBuffer;
             } else {
                 firstBuffer = inputBuffer;
                 secondBuffer = silentChannelBuffer;
