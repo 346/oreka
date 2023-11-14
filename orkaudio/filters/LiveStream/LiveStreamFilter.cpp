@@ -284,6 +284,8 @@ void LiveStreamFilter::CaptureEventIn(CaptureEventRef & event) {
         url += m_localIp;
         url += "&direction=";
         url += m_direction;
+        url += "&service=";
+        url += LIVESTREAMCONFIG.m_serviceName;
 
 
         logMsg.Format("LiveStream:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
