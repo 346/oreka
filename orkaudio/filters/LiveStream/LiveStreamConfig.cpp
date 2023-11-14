@@ -26,7 +26,7 @@ void LiveStreamConfig::Define(Serializer* s) {
     s->IntValue(LIVE_STREAMING_SERVER_PORT_PARAM, m_serverPort);
     s->IntValue(LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD, m_queueFlushThresholdMillis);
     s->BoolValue(LIVE_STREAM_ALL_CALLS, m_shouldStreamAllCalls);
-    s->StringValue(LIVE_STREAMING_SERVICE_NAME, m_serviceName);
+    s->StringValue(LIVE_STREAMING_SERVICE_NAME_PARAM, m_serviceName);
     LOG4CXX_INFO(s_log, "LiveStreamConfig Endpoint " + m_rtmpServerEndpoint);
 }
 
