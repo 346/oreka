@@ -12,6 +12,8 @@
 #define LIVE_STREAMING_SERVER_PORT_DEFAULT 59160
 #define DEFAULT_LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD 500
 #define LIVE_STREAM_ALL_CALLS "LiveStreamAllCalls"
+#define LIVE_STREAMING_SERVICE_NAME_PARAM "LiveStreamingServiceName"
+#define LIVE_STREAMING_SERVICE_NAME_DEFAULT "orkaudio"
 
 class LiveStreamConfig : public Object {
     public:
@@ -29,10 +31,11 @@ class LiveStreamConfig : public Object {
         int m_serverPort;
         int m_queueFlushThresholdMillis;
         bool m_shouldStreamAllCalls;
+        CStdString m_serviceName;
 };
 
 extern LiveStreamConfig g_LiveStreamConfigObjectRef;
 
-#define LIVESTREAMCONFIG g_LiveStreamConfigObjectRef 
+#define LIVESTREAMCONFIG g_LiveStreamConfigObjectRef
 
 #endif

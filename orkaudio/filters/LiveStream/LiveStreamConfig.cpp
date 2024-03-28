@@ -10,6 +10,7 @@ LiveStreamConfig::LiveStreamConfig() {
     m_serverPort = LIVE_STREAMING_SERVER_PORT_DEFAULT;
     m_queueFlushThresholdMillis = DEFAULT_LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD;
     m_shouldStreamAllCalls = false;
+    m_serviceName = LIVE_STREAMING_SERVICE_NAME_DEFAULT;
 }
 
 void LiveStreamConfig::Reset() {
@@ -17,6 +18,7 @@ void LiveStreamConfig::Reset() {
     m_shouldStreamAllCalls = false;
     m_serverPort = LIVE_STREAMING_SERVER_PORT_DEFAULT;
     m_queueFlushThresholdMillis = DEFAULT_LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD;
+    m_serviceName = LIVE_STREAMING_SERVICE_NAME_DEFAULT;
 }
 
 void LiveStreamConfig::Define(Serializer* s) {
@@ -24,6 +26,7 @@ void LiveStreamConfig::Define(Serializer* s) {
     s->IntValue(LIVE_STREAMING_SERVER_PORT_PARAM, m_serverPort);
     s->IntValue(LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD, m_queueFlushThresholdMillis);
     s->BoolValue(LIVE_STREAM_ALL_CALLS, m_shouldStreamAllCalls);
+    s->StringValue(LIVE_STREAMING_SERVICE_NAME_PARAM, m_serviceName);
     LOG4CXX_INFO(s_log, "LiveStreamConfig Endpoint " + m_rtmpServerEndpoint);
 }
 

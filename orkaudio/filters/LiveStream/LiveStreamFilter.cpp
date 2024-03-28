@@ -27,7 +27,7 @@ LiveStreamFilter::~LiveStreamFilter() {
     if (silentChannelBuffer != NULL){
         free(silentChannelBuffer);
     }
-    
+
     // LOG4CXX_DEBUG(s_log, "LiveStream Instance Destroying");
 }
 
@@ -49,10 +49,13 @@ void LiveStreamFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 
     AudioChunkDetails inputDetails = * inputAudioChunk->GetDetails();
     char * inputBuffer = (char * ) inputAudioChunk->m_pBuffer;
-    
+
     if (isFirstPacket) {
         headChannel = inputDetails.m_channel;
         isFirstPacket = false;
+        CStdString logMsg;
+        logMsg.Format("LiveStream:: HeadChannel: %d", headChannel);
+        LOG4CXX_DEBUG(s_log, logMsg);
     }
 
     if (silentChannelBuffer == NULL){
@@ -67,17 +70,35 @@ void LiveStreamFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
     }
 
     if (status) {
+        char *firstBuffer;
+        char *secondBuffer;
+        char *leftBuffer;
+        char *rightBuffer;
+        boost::optional<AudioChunkRef> queuedChunk;
         if (inputDetails.m_channel == headChannel) {
-            if (auto elem = bufferQueue.put(inputAudioChunk)){
-                PushToRTMP(inputDetails, silentChannelBuffer, (char *)(*elem)->m_pBuffer);
+            if (queuedChunk = bufferQueue.put(inputAudioChunk)){
+                firstBuffer = silentChannelBuffer;
+                secondBuffer = (char *)(*queuedChunk)->m_pBuffer;
+            } else {
+                return;
             }
         } else {
-            if (auto elem = bufferQueue.get()){
-                PushToRTMP(inputDetails, inputBuffer, (char *)(*elem)->m_pBuffer);
+            if (queuedChunk = bufferQueue.get()){
+                firstBuffer = inputBuffer;
+                secondBuffer = (char *)(*queuedChunk)->m_pBuffer;
             } else {
-                PushToRTMP(inputDetails, inputBuffer, silentChannelBuffer);
+                firstBuffer = inputBuffer;
+                secondBuffer = silentChannelBuffer;
             }
         }
+        if (headChannel == 1) {
+            leftBuffer = firstBuffer;
+            rightBuffer = secondBuffer;
+        } else {
+            leftBuffer = secondBuffer;
+            rightBuffer = firstBuffer;
+        }
+        PushToRTMP(inputDetails, leftBuffer, rightBuffer);
     }
 
 }
@@ -209,6 +230,25 @@ void LiveStreamFilter::CaptureEventIn(CaptureEventRef & event) {
         m_callId = event->m_value;
     }
 
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtOrkUid) {
+        m_orkUid = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtDirection) {
+        m_direction = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtLocalParty) {
+        m_localParty = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtRemoteParty) {
+        m_remoteParty = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtLocalIp) {
+        m_localIp = event->m_value;
+    }
+    if (event->m_type == CaptureEvent::EventTypeEnum::EtRemoteIp) {
+        m_remoteIp = event->m_value;
+    }
+
     if (
         (event->m_type == CaptureEvent::EventTypeEnum::EtCallId && shouldStreamAllCalls) ||
         (event->m_type == CaptureEvent::EventTypeEnum::EtKeyValue && event->m_key == "LiveStream" && event->m_value == "start" && !shouldStreamAllCalls)
@@ -219,7 +259,34 @@ void LiveStreamFilter::CaptureEventIn(CaptureEventRef & event) {
             LOG4CXX_ERROR(s_log, logMsg);
             return;
         }
-        std::string url = "rtmp://" + LIVESTREAMCONFIG.m_rtmpServerEndpoint + "/" + m_callId;
+        if (m_orkUid.empty()) {
+            logMsg.Format("LiveStream:: Start[%s] Failed for Empty Ork UID", m_orkUid);
+            LOG4CXX_ERROR(s_log, logMsg);
+            return;
+        }
+        const uuid streamingUuid = random_generator()();
+        auto liveStreamingId = boost::lexical_cast<std::string>(streamingUuid);
+        std::string url = "rtmp://" ;
+        url += LIVESTREAMCONFIG.m_rtmpServerEndpoint;
+        url += "/";
+        url += liveStreamingId;
+        url += "?orkuid=";
+        url += m_orkUid;
+        url += "&nativecallid=";
+        url += m_callId;
+        url += "&localparty=";
+        url += m_localParty;
+        url += "&remoteparty=";
+        url += m_remoteParty;
+        url += "&remoteip=";
+        url += m_remoteIp;
+        url += "&localip=";
+        url += m_localIp;
+        url += "&direction=";
+        url += m_direction;
+        url += "&service=";
+        url += LIVESTREAMCONFIG.m_serviceName;
+
 
         logMsg.Format("LiveStream:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
         LOG4CXX_INFO(s_log, logMsg);
@@ -288,13 +355,13 @@ extern "C"
     DLL_EXPORT void __CDECL__ OrkInitialize()
     {
         LOG4CXX_INFO(s_log, "LiveStream  Filter starting");
-        
+
         //LiveStreamConfig
         ConfigManager::Instance()->AddConfigureFunction(LiveStreamConfig::Configure);
-        
+
         FilterRef filter(new LiveStreamFilter());
         FilterRegistry::instance()->RegisterFilter(filter);
-        
+
         LOG4CXX_INFO(s_log, "LiveStream  filter initialized");
 
         LiveStreamServer *liveStreamServer = new LiveStreamServer(LIVESTREAMCONFIG.m_serverPort);

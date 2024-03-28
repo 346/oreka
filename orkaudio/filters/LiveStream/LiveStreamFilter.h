@@ -24,6 +24,13 @@
 #include "LiveStreamServer.h"
 #include "RingBuffer.h"
 
+#include <boost/uuid/uuid.hpp>
+#include <boost/uuid/uuid_io.hpp>
+#include <boost/uuid/uuid_generators.hpp>
+#include <boost/lexical_cast.hpp>
+
+using namespace boost::uuids;
+
 class DLL_IMPORT_EXPORT_ORKBASE LiveStreamFilter : public Filter {
     public:
         LiveStreamFilter();
@@ -45,6 +52,12 @@ class DLL_IMPORT_EXPORT_ORKBASE LiveStreamFilter : public Filter {
         bool m_initialized;
         CStdString m_callId;
         CStdString m_orkRefId;
+        CStdString m_orkUid;
+        CStdString m_localParty;
+        CStdString m_localIp;
+        CStdString m_remoteParty;
+        CStdString m_remoteIp;
+        CStdString m_direction;
         bool status = false;
         bool isFirstPacket = true;
         unsigned char headChannel;
