@@ -60,10 +60,12 @@ class DLL_IMPORT_EXPORT_ORKBASE LiveStreamFilter : public Filter {
         CStdString m_direction;
         bool status = false;
         bool isFirstPacket = true;
-        unsigned char headChannel;
+        int currentBufferChannel;
         srs_rtmp_t rtmp = NULL;
         u_int32_t timestamp = 0;
-        RingBuffer<AudioChunkRef> bufferQueue;
+        RingBuffer<AudioChunkRef> bufferQueueA;
+        RingBuffer<AudioChunkRef> bufferQueueB;
+        bool useBufferA = true;
         bool shouldStreamAllCalls;
         char * silentChannelBuffer = NULL;
         void PushToRTMP(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);

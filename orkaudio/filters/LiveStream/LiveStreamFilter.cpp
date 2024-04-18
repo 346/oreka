@@ -16,7 +16,7 @@
 
 static log4cxx::LoggerPtr s_log = log4cxx::Logger::getLogger("plugin.livestream");
 
-LiveStreamFilter::LiveStreamFilter() : bufferQueue(LIVESTREAMCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL) {
+LiveStreamFilter::LiveStreamFilter() : bufferQueueA(LIVESTREAMCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL), bufferQueueB(LIVESTREAMCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL) {
     // LOG4CXX_DEBUG(s_log, "LiveStream New Instance Created");
     //For 1 second, there will be 1000ms / 20ms = 50 frames
     // auto bufferSize = LIVESTREAMCONFIG.m_queueFlushThresholdMillis/20;
@@ -48,13 +48,13 @@ void LiveStreamFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
     }
 
     AudioChunkDetails inputDetails = * inputAudioChunk->GetDetails();
-    char * inputBuffer = (char * ) inputAudioChunk->m_pBuffer;
+    char * newBuffer = (char * ) inputAudioChunk->m_pBuffer;
 
     if (isFirstPacket) {
-        headChannel = inputDetails.m_channel;
+        currentBufferChannel = inputDetails.m_channel;
         isFirstPacket = false;
         CStdString logMsg;
-        logMsg.Format("LiveStream:: HeadChannel: %d", headChannel);
+        logMsg.Format("LiveStream:: HeadChannel: %d", currentBufferChannel);
         LOG4CXX_DEBUG(s_log, logMsg);
     }
 
@@ -70,35 +70,50 @@ void LiveStreamFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
     }
 
     if (status) {
-        char *firstBuffer;
-        char *secondBuffer;
-        char *leftBuffer;
-        char *rightBuffer;
+        char *bufferedChunk;
+        char *newChunk;
+        char *leftChunk;
+        char *rightChunk;
+        RingBuffer<AudioChunkRef> *currentBufferQueue;
+        RingBuffer<AudioChunkRef> *standbyBufferQueue;
+        if (useBufferA) {
+            currentBufferQueue = &bufferQueueA;
+            standbyBufferQueue = &bufferQueueB;
+        } else {
+            currentBufferQueue = &bufferQueueB;
+            standbyBufferQueue = &bufferQueueA;
+        }
         boost::optional<AudioChunkRef> queuedChunk;
-        if (inputDetails.m_channel == headChannel) {
-            if (queuedChunk = bufferQueue.put(inputAudioChunk)){
-                firstBuffer = silentChannelBuffer;
-                secondBuffer = (char *)(*queuedChunk)->m_pBuffer;
+        if (inputDetails.m_channel == currentBufferChannel) {
+            if (queuedChunk = currentBufferQueue->put(inputAudioChunk)){
+                newChunk = silentChannelBuffer;
+                bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
             } else {
                 return;
             }
         } else {
-            if (queuedChunk = bufferQueue.get()){
-                firstBuffer = inputBuffer;
-                secondBuffer = (char *)(*queuedChunk)->m_pBuffer;
+            if (queuedChunk = currentBufferQueue->get()){
+                newChunk = newBuffer;
+                bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
             } else {
-                firstBuffer = inputBuffer;
-                secondBuffer = silentChannelBuffer;
+                useBufferA = !useBufferA;
+                currentBufferChannel = inputDetails.m_channel;
+
+                if (queuedChunk = standbyBufferQueue->put(inputAudioChunk)) {
+                    LOG4CXX_ERROR(s_log, "Standby buffer has chunk");
+                    status = false;
+                }
+                return;
             }
         }
-        if (headChannel == 1) {
-            leftBuffer = firstBuffer;
-            rightBuffer = secondBuffer;
+        if (currentBufferChannel == 1) {
+            leftChunk = bufferedChunk;
+            rightChunk = newChunk;
         } else {
-            leftBuffer = secondBuffer;
-            rightBuffer = firstBuffer;
+            leftChunk = newChunk;
+            rightChunk = bufferedChunk;
         }
-        PushToRTMP(inputDetails, leftBuffer, rightBuffer);
+        PushToRTMP(inputDetails, leftChunk, rightChunk);
     }
 
 }
@@ -159,10 +174,7 @@ void LiveStreamFilter::PushToRTMP(AudioChunkDetails& channelDetails, char * firs
     //char sound_type = outputDetails.m_channel == 0 ? 0 : 1;
     char sound_type = 1;
 
-    timestamp += 160; //Timestamp increment = clock frequency/frame rate
-    //160 byte payload of G.711 has a packetization interval of 20 ms
-    //For 1 second, there will be 1000ms / 20ms = 50 frames
-    //Audio RTP packet timestamp incremental value = 8kHz / 50 = 8000Hz / 50 = 160
+    timestamp += G711_PACKET_INTERVAL;
     char *outputBuffer = (char *)malloc(size);
     if (!outputBuffer) {
         logMsg.Format("LiveStreamFilter::Send [%s] Memory allocation failed.", m_orkRefId);
