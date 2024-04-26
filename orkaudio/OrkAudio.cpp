@@ -10,7 +10,7 @@
  * Please refer to http://www.gnu.org/copyleft/gpl.html
  *
  */
- 
+
 #include <cstdlib>
 #include <iostream>
 #include "stdio.h"
@@ -63,7 +63,7 @@
 #include "apr_signal.h"
 #include <sys/prctl.h>
 
-#ifdef linux  
+#ifdef linux
 #include <execinfo.h>
 #include <signal.h>
 #include <stdlib.h>
@@ -136,7 +136,7 @@ void LoadPlugins(std::list<apr_dso_handle_t*>& pluginDlls)
 	CStdString pluginPath;
 	apr_status_t ret;
 	apr_dir_t* dir;
-	
+
 	ret = apr_dir_open(&dir, (PCSTR)pluginsDirectory, AprLp);
 	if (ret != APR_SUCCESS)
 	{
@@ -146,7 +146,7 @@ void LoadPlugins(std::list<apr_dso_handle_t*>& pluginDlls)
 	{
 		apr_finfo_t finfo;
 		apr_int32_t wanted = APR_FINFO_NAME | APR_FINFO_SIZE;
-		while((ret = apr_dir_read(&finfo, wanted, dir)) == APR_SUCCESS) 
+		while((ret = apr_dir_read(&finfo, wanted, dir)) == APR_SUCCESS)
 		{
 			apr_dso_handle_t *dsoHandle;
 			CStdString fileName;
@@ -157,7 +157,7 @@ void LoadPlugins(std::list<apr_dso_handle_t*>& pluginDlls)
 				pluginPath = pluginsDirectory + finfo.name;
 				char errstr[256];
 				// dsoHandle needs to persist beyond this function, so we need to use
-				// a pool that also persists -- use the global pool. this is safe here because 
+				// a pool that also persists -- use the global pool. this is safe here because
 				// we're running in the main thread where the pool was created.
 				ret = apr_dso_load(&dsoHandle, (PCSTR)pluginPath, OrkAprSingleton::GetInstance()->GetAprMp());
 				if(ret != APR_SUCCESS)
@@ -218,7 +218,7 @@ void Transcode(CStdString &file)
 	FilterRegistry::instance()->RegisterFilter(filter);
     filter.reset(new OpusCodecDecoder());
 	FilterRegistry::instance()->RegisterFilter(filter);
-	
+
 	// Register in-built tape processors and build the processing chain
 	BatchProcessing::Initialize();
 	Reporting::Initialize();
@@ -230,7 +230,7 @@ void Transcode(CStdString &file)
 	} catch(const std::exception &ex){
 		CStdString logMsg;
 		logMsg.Format("Failed to start BatchProcessing thread reason:%s",  ex.what());
-		LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+		LOG4CXX_ERROR(LOG.rootLog, logMsg);
 	}
 
 	// Transmit the tape to the BatchProcessing
@@ -336,8 +336,9 @@ void MainThread()
 	FilterRegistry::instance()->RegisterFilter(filter);
     filter.reset(new OpusCodecDecoder());
 	FilterRegistry::instance()->RegisterFilter(filter);
-	
+
 	// Register in-built tape processors and build the processing chain
+	if (CONFIG.m_audioOutputEnable) {
 	OrkTrack::Initialize(CONFIG.m_trackerHostname, CONFIG.m_trackerServicename, CONFIG.m_trackerTcpPort,  CONFIG.m_trackerTlsPort);
 	BatchProcessing::Initialize();
 	CommandProcessing::Initialize();
@@ -351,12 +352,12 @@ void MainThread()
 		handler.detach();
 	} catch(const std::exception &ex){
 		logMsg.Format("Failed to start ImmediateProcessing thread reason:%s",  ex.what());
-		LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+		LOG4CXX_ERROR(LOG.rootLog, logMsg);
 	}
-	
+
 	if(CONFIG.m_storageAudioFormat != FfNative)
 	{
-		// storage format is not native, which means we need batch workers to compress to wanted format 
+		// storage format is not native, which means we need batch workers to compress to wanted format
 		for(int i = 0; i < CONFIG.m_numBatchThreads; i++)
 		{
 			try{
@@ -364,7 +365,7 @@ void MainThread()
 				handler.detach();
 			} catch(const std::exception &ex){
 				logMsg.Format("Failed to start BatchProcessing thread reason:%s",  ex.what());
-				LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+				LOG4CXX_ERROR(LOG.rootLog, logMsg);
 			}
 		}
 	}
@@ -374,7 +375,7 @@ void MainThread()
 		handler.detach();
 	} catch(const std::exception &ex){
 		logMsg.Format("Failed to start Reporting thread reason:%s",  ex.what());
-		LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+		LOG4CXX_ERROR(LOG.rootLog, logMsg);
 	}
 
 	try{
@@ -382,7 +383,7 @@ void MainThread()
 		handler.detach();
 	} catch(const std::exception &ex){
 		logMsg.Format("Failed to start TapeFileNaming thread reason:%s",  ex.what());
-		LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+		LOG4CXX_ERROR(LOG.rootLog, logMsg);
 	}
 
 	try{
@@ -390,7 +391,7 @@ void MainThread()
 		handler.detach();
 	} catch(const std::exception &ex){
 		logMsg.Format("Failed to start CommandProcessing thread reason:%s",  ex.what());
-		LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+		LOG4CXX_ERROR(LOG.rootLog, logMsg);
 	}
 
 	try{
@@ -398,7 +399,7 @@ void MainThread()
 		handler.detach();
 	} catch(const std::exception &ex){
 		logMsg.Format("Failed to start DirectionSelector thread reason:%s",  ex.what());
-		LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+		LOG4CXX_ERROR(LOG.rootLog, logMsg);
 	}
 	// Create command line server
 	// CommandLineServer commandLineServer(CONFIG.m_commandLineServerPort);
@@ -436,6 +437,8 @@ void MainThread()
 		handler.detach();
 	}
 
+	}
+
 	if(capturePluginOk)
 	{
 		CapturePluginProxy::Singleton()->Run();
@@ -451,7 +454,7 @@ void MainThread()
 	CapturePluginProxy::Singleton()->Shutdown();
 
 	OrkSleepSec(2);
-	
+
 	//***** This is to avoid an exception when NT service exiting
 	//***** Need to find out the real problem and fix
 #ifdef WIN32
