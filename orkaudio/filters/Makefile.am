@@ -1,2 +1,2 @@
 METASOURCES = AUTO
-SUBDIRS = rtpmixer silkcodec g729codec LiveStream
+SUBDIRS = rtpmixer silkcodec g729codec LiveStream srt
