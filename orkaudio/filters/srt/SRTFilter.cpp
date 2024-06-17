@@ -13,6 +13,8 @@
 #include "SRTConfig.h"
 #include <srt.h>
 #include "uriparser.hpp"
+#include "boost/asio.hpp"
+#include <random>
 
 
 #define G711_PACKET_INTERVAL 20
@@ -21,7 +23,11 @@ static log4cxx::LoggerPtr s_log = log4cxx::Logger::getLogger("plugin.srt");
 
 static std::regex placeholderPattern("\\{([a-zA-Z0-9_]+)\\}");
 
-SRTFilter::SRTFilter() : m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL), m_bufferQueueB(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL) {
+SRTFilter::SRTFilter() :
+    m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
+    m_bufferQueueB(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
+    m_rng(std::random_device()()) {
+    m_srtUrl = string("srt://127.0.0.1:6000?" + SRTCONFIG.m_srtQuery);
 }
 
 SRTFilter::~SRTFilter() {
@@ -115,11 +121,11 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
             leftChunk = newChunk;
             rightChunk = bufferedChunk;
         }
-        PushToRTMP(inputDetails, leftChunk, rightChunk);
+        PushToSRT(inputDetails, leftChunk, rightChunk);
     }
 }
 
-void SRTFilter::PushToRTMP(AudioChunkDetails& channelDetails, char * firstChannelBuffer, char * secondChannelBuffer) {
+void SRTFilter::PushToSRT(AudioChunkDetails& channelDetails, char * firstChannelBuffer, char * secondChannelBuffer) {
     CStdString logMsg;
     int size = channelDetails.m_numBytes * 2;
     m_timestamp += G711_PACKET_INTERVAL;
@@ -218,18 +224,11 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
         auto liveStreamingId = boost::lexical_cast<std::string>(streamingUuid);
         std::string url = GetURL(liveStreamingId);
         logMsg.Format("SRTFilter:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
-        LOG4CXX_INFO(s_log, logMsg);
+        LOG4CXX_DEBUG(s_log, logMsg);
 
         UriParser u(url);
 
         srt_setloglevel(srt_logging::LogLevel::debug);
-
-        struct addrinfo hints, *peer;
-
-        memset(&hints, 0, sizeof(struct addrinfo));
-        hints.ai_flags = AI_PASSIVE;
-        hints.ai_family = AF_INET;
-        hints.ai_socktype = SOCK_DGRAM;
 
         m_srtsock = srt_create_socket();
         auto params = u.parameters();
@@ -257,27 +256,40 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
             }
         }
 
-        if (0 != getaddrinfo(u.host().c_str(), u.port().c_str(), &hints, &peer))
-        {
-            logMsg.Format("[%s] incorrect server/peer address. %s:%s", m_orkRefId, u.host().c_str(), u.port().c_str());
-            LOG4CXX_INFO(s_log, logMsg);
+
+        std::vector<int> indices(SRTCONFIG.m_srtAddresses.size());
+        std::iota(indices.begin(), indices.end(), 0);
+        std::shuffle(indices.begin(), indices.end(), m_rng);
+        auto connected = false;
+          for (const auto i : indices) {
+            auto address = SRTCONFIG.m_srtAddresses[i];
+            boost::asio::ip::address_v4 v4Address = address.to_v4();
+            sockaddr_in addr_in;
+            LOG4CXX_DEBUG(s_log, v4Address.to_string());
+            memset(&addr_in, 0, sizeof(addr_in));
+            addr_in.sin_family = AF_INET;
+            addr_in.sin_port = htons(std::stoi(u.port()));
+            inet_pton4(v4Address.to_string().c_str(), &addr_in.sin_addr);
+
+            sockaddr* addr = (struct sockaddr*)&addr_in;
+
+            if (SRT_ERROR == srt_connect(m_srtsock, addr, sizeof(addr_in))) {
+                int rej = srt_getrejectreason(m_srtsock);
+                logMsg.Format("[%s] %s:%s", m_orkRefId, srt_getlasterror_str(), srt_rejectreason_str(rej));
+                LOG4CXX_INFO(s_log, logMsg);
+            } else {
+                connected = true;
+                break;
+            }
+        }
+        if (connected) {
+            m_status = true;
+        } else {
+            logMsg.Format("[%s] error srt_connect", m_orkRefId);
+            LOG4CXX_ERROR(s_log, logMsg);
             m_status = false;
             return;
         }
-
-        // Connect to the server, implicit bind.
-        if (SRT_ERROR == srt_connect(m_srtsock, peer->ai_addr, peer->ai_addrlen))
-        {
-            int rej = srt_getrejectreason(m_srtsock);
-            logMsg.Format("[%s] %s:%s", m_orkRefId, srt_getlasterror_str(), srt_rejectreason_str(rej));
-            LOG4CXX_INFO(s_log, logMsg);
-            m_status = false;
-            return;
-        }
-
-        freeaddrinfo(peer);
-
-        m_status = true;
     }
 
     if (event->m_type == CaptureEvent::EventTypeEnum::EtStop) {
@@ -322,7 +334,7 @@ void SRTFilter::SetSessionInfo(CStdString & trackingId) {
 }
 
 std::string SRTFilter::GetURL(std::string liveStreamingId) {
-    std::string result = SRTCONFIG.m_srtServerEndpoint;
+    std::string result = m_srtUrl;
     std::map<std::string, std::string> values = {
         {"streamid", liveStreamingId},
         {"orkuid", m_orkUid},

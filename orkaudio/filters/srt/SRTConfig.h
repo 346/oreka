@@ -5,12 +5,18 @@
 #include "serializers/Serializer.h"
 #include "StdString.h"
 #include "Utils.h"
+#include "boost/asio.hpp"
 
-#define SRT_SERVER_ENDPOINT "SRTEndpoint"
+#define SRT_SERVER_HOSTS_NAME_PARAM "SRTServerHosts"
+#define SRT_QUERY_NAME_PARAM "SRTQuery"
 #define LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD "LiveStreamingQueueFlushThreshold"
 #define DEFAULT_LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD 500
 #define LIVE_STREAMING_SERVICE_NAME_PARAM "LiveStreamingServiceName"
 #define LIVE_STREAMING_SERVICE_NAME_DEFAULT "orkaudio"
+
+using namespace std;
+using namespace boost::asio;
+using namespace boost::asio::ip;
 
 class SRTConfig : public Object {
     public:
@@ -24,7 +30,11 @@ class SRTConfig : public Object {
 
         static void Configure(DOMNode* node);
 
-        CStdString m_srtServerEndpoint;
+        vector<address> ResolveHostname(const list<CStdString> &hostnames);
+
+        list<CStdString> m_srtServerHosts;
+        CStdString m_srtQuery;
+        vector<address> m_srtAddresses;
         int m_queueFlushThresholdMillis;
         CStdString m_serviceName;
 };

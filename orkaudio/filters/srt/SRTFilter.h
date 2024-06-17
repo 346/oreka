@@ -23,6 +23,9 @@
 #include "srt.h"
 #include "uriparser.hpp"
 
+#include <algorithm>
+#include <random>
+#include <ctime>
 #include <boost/uuid/uuid.hpp>
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
@@ -61,12 +64,14 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
         bool m_status = false;
         bool m_isFirstPacket = true;
         int m_currentBufferChannel;
+        std::mt19937 m_rng;
         u_int32_t m_timestamp = 0;
         RingBuffer<AudioChunkRef> m_bufferQueueA;
         RingBuffer<AudioChunkRef> m_bufferQueueB;
         bool m_useBufferA = true;
         char * m_silentChannelBuffer = NULL;
-        void PushToRTMP(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
+        std::string m_srtUrl;
+        void PushToSRT(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
         std::string GetURL(std::string liveStreamingId);
 };
 
