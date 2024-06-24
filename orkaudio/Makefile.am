@@ -4,13 +4,13 @@ AUTOMAKE_OPTIONS = foreign 1.4
 
 
 sbin_PROGRAMS = orkaudio
-orkaudio_LDADD =
-orkaudio_LDFLAGS = -lxerces-c -llog4cxx -lorkbase -lsndfile -l@speex_lib@ -lapr-1 -lssl -lcrypto -lpthread -ldl 
+orkaudio_LDADD = @OPENTELEMETRY_EXPORTER_OTLP_FILE_LIBS@ @OPENTELEMETRY_EXPORTER_OTLP_FILE_LOG_LIBS@ @OPENTELEMETRY_EXPORTER_OTLP_FILE_METRIC_LIBS@ @OPENTELEMETRY_EXPORTER_OTLP_FILE_CLIENT_LIBS@ @PROTOBUF_LIBS@  @ABSL_LOG_LIBS@ @OPENTELEMETRY_PROTO_LIBS@ @OPENTELEMETRY_TRACE_LIBS@ @OPENTELEMETRY_LOGS_LIBS@ @OPENTELEMETRY_METRICS_LIBS@ @OPENTELEMETRY_COMMON_LIBS@
+orkaudio_LDFLAGS = -lxerces-c -lorkbase -llog4cxx -L/usr/local/lib -Wl,--whole-archive,-lopentelemetry_log4cxx_appender,--no-whole-archive -lopentelemetry_exporter_ostream_logs -lopentelemetry_exporter_ostream_span -lsndfile -l@speex_lib@ -lapr-1 -lssl -lcrypto -lpthread -ldl
 orkaudio_SOURCES = 	OrkAudio.cpp
 AM_CPPFLAGS = -D_REENTRANT
-INCLUDES = -I@top_srcdir@ -I../orkbasecxx -I/opt/opus/include/opus -I../orkbasecxx/filters/gsm -I../orkbasecxx/filters/gsm/gsm610 -I../orkbasecxx/filters/ilbc -I../orkbasecxx/filters/ilbc/ilbc -I../orkbasecxx/filters/audiogain -I../orkbasecxx/filters/g722codec -I../orkbasecxx/filters/speex -I../orkbasecxx/filters/g726codecs -I../orkbasecxx/filters/g726codecs/g72x -I../orkbasecxx/filters/opuscodec -I/usr/include/apr-1 -I/usr/include/apr-1.0
+INCLUDES = -I@top_srcdir@ -I../orkbasecxx -I/opt/opus/include/opus -I../orkbasecxx/filters/gsm -I../orkbasecxx/filters/gsm/gsm610 -I../orkbasecxx/filters/ilbc -I../orkbasecxx/filters/ilbc/ilbc -I../orkbasecxx/filters/audiogain -I../orkbasecxx/filters/g722codec -I../orkbasecxx/filters/speex -I../orkbasecxx/filters/g726codecs -I../orkbasecxx/filters/g726codecs/g72x -I../orkbasecxx/filters/opuscodec -I/usr/include/apr-1 -I/usr/include/apr-1.0 -I/usr/local/include/opentelemetry -I /usr/local/include/opentelemetry/instrumentation/log4cxx -I /usr/local/include/absl
 SUBDIRS = audiocaptureplugins filters
-#orkaudio_LDADD = $(top_builddir)/messages/libmessages.la 
+#orkaudio_LDADD = $(top_builddir)/messages/libmessages.la
 
 orkaudioconfdir = /etc/orkaudio
 orkaudioconf_DATA = \

@@ -46,11 +46,11 @@ fi
 
 AC_SUBST(boost_lib,$boost_lib)
 
-# Check if gcc supports cpp11 
-if [echo "int main(){}" | $CXX -std=c++11 -xc++ -S -  &>/dev/null]; then 
-	CXXFLAGS+=" -std=c++11 -DSUPPORTS_CPP11 -fPIC"
-else	
-	AC_MSG_FAILURE("Compiler must support C++ 11")
+# Check if gcc supports cpp11
+if [echo "int main(){}" | $CXX -std=c++14 -xc++ -S -  &>/dev/null]; then
+	CXXFLAGS+=" -std=c++14 -DSUPPORTS_CPP11 -fPIC"
+else
+	AC_MSG_FAILURE("Compiler must support C++ 14")
 fi
 
 

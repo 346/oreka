@@ -16,6 +16,19 @@ AC_LANG_CPLUSPLUS
 AC_PROG_CXX
 AM_PROG_LIBTOOL
 
+PKG_CHECK_MODULES([PROTOBUF], [protobuf], [], [])
+PKG_CHECK_MODULES([OPENTELEMETRY_EXPORTER_OTLP_FILE_CLIENT], [opentelemetry_exporter_otlp_file_client])
+PKG_CHECK_MODULES([OPENTELEMETRY_EXPORTER_OTLP_FILE], [opentelemetry_exporter_otlp_file])
+PKG_CHECK_MODULES([OPENTELEMETRY_EXPORTER_OTLP_FILE_LOG], [opentelemetry_exporter_otlp_file_log])
+PKG_CHECK_MODULES([OPENTELEMETRY_EXPORTER_OTLP_FILE_METRIC], [opentelemetry_exporter_otlp_file_metric])
+PKG_CHECK_MODULES([OPENTELEMETRY_TRACE], [opentelemetry_trace])
+PKG_CHECK_MODULES([OPENTELEMETRY_LOGS], [opentelemetry_logs])
+PKG_CHECK_MODULES([OPENTELEMETRY_METRICS], [opentelemetry_metrics])
+PKG_CHECK_MODULES([OPENTELEMETRY_COMMON], [opentelemetry_common])
+PKG_CHECK_MODULES([OPENTELEMETRY_PROTO], [opentelemetry_proto])
+PKG_CHECK_MODULES([ABSL_LOG], [absl_log])
+
+
 AS_IF([test "x$enable_tsan" = "xyes"], [
 	CXXFLAGS+=" -fsanitize=thread "
 	LDFLAGS+=" -fsanitize=thread "
@@ -27,11 +40,11 @@ AS_IF([test "x$enable_asan" = "xyes"], [
 ])
 
 # Check if gcc supports cpp11
-if [echo "int main(){}" | $CXX -std=c++11 -xc++ -S -  &>/dev/null] ; then
-	CXXFLAGS+=" -std=c++11 -DSUPPORTS_CPP11 -fPIC"
+if [echo "int main(){}" | $CXX -std=c++14 -xc++ -S -  &>/dev/null] ; then
+	CXXFLAGS+=" -std=c++14 -DSUPPORTS_CPP11 -fPIC"
 	LDFLAGS+=" -ldl"
 else
-	AC_MSG_FAILURE("Compiler must support C++ 11")
+	AC_MSG_FAILURE("Compiler must support C++ 14")
 fi
 
 # don't support TLS under Centos 6
