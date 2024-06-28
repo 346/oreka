@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -82,6 +82,7 @@ void CapturePort::FilterAudioChunk(AudioChunkRef& chunkRef)
 	for(it = m_filters.begin(); it != m_filters.end(); it++)
 	{
 		FilterRef filter = *it;
+		auto scope = filter->Scope();
 		filter->AudioChunkIn(chunkRef);
 		filter->AudioChunkOut(chunkRef);
 	}
@@ -94,6 +95,7 @@ void CapturePort::FilterCaptureEvent(CaptureEventRef& eventRef)
 	for(it = m_filters.begin(); it != m_filters.end(); it++)
 	{
 		FilterRef filter = *it;
+		auto scope = filter->Scope();
 		filter->CaptureEventIn(eventRef);
 		filter->CaptureEventOut(eventRef);
 	}
@@ -171,7 +173,7 @@ void CapturePort::AddAudioChunk(AudioChunkRef chunkRef)
 				AddCaptureEvent(eventRef);
 				ReportEventBacklog(m_audioTapeRef);
 			}
-		}	
+		}
 		else
 		{
 			// create new tape
@@ -311,7 +313,7 @@ void CapturePort::AddCaptureEvent(CaptureEventRef eventRef)
 		if(!CONFIG.m_vad && !CONFIG.m_audioSegmentation)
 		{
 			// These are queued for VAD & Audio Segmentation
-			LOG4CXX_WARN(s_log, "#" + m_id + ": received unexpected capture event:" 
+			LOG4CXX_WARN(s_log, "#" + m_id + ": received unexpected capture event:"
 				+ CaptureEvent::EventTypeToString(eventRef->m_type));
 		}
 	}
@@ -328,7 +330,7 @@ void CapturePort::AddCaptureEvent(CaptureEventRef eventRef)
 			if(CONFIG.m_holdResumeReportDuration) audioTapeRef->PopulateTag("holdduration", IntToString(audioTapeRef->m_holdDuration));
 			LOG4CXX_INFO(s_log, "[" + audioTapeRef->m_trackingId + "] #" + m_id + " stop");
 			audioTapeRef->AddCaptureEvent(eventRef, true);
-			
+
 			MessageRef msgRef;
 			audioTapeRef->GetMessage(msgRef);
 			Reporting::Instance()->AddMessage(msgRef);
@@ -352,7 +354,7 @@ void CapturePort::AddCaptureEvent(CaptureEventRef eventRef)
 		}
 		case CaptureEvent::EtResume:
 		{
-			if(audioTapeRef->m_lastHoldTs > 0) audioTapeRef->m_holdDuration += (time(NULL) - audioTapeRef->m_lastHoldTs);			
+			if(audioTapeRef->m_lastHoldTs > 0) audioTapeRef->m_holdDuration += (time(NULL) - audioTapeRef->m_lastHoldTs);
 			if(CONFIG.m_holdResumeReportEvents && audioTapeRef->m_lastHoldTs > 0){
 				audioTapeRef->AddCaptureEvent(eventRef, true);
 				MessageRef msgRef;

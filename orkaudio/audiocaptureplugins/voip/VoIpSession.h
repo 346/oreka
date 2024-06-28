@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -30,14 +30,22 @@
 #include "Utils.h"
 #include "../common/OrkSession.h"
 
+#include "opentelemetry/trace/scope.h"
+#include "opentelemetry/trace/span_id.h"
+#include "opentelemetry/trace/tracer.h"
+#include "opentelemetry/nostd/shared_ptr.h"
 
 #ifdef TESTING
 	#define VIT virtual
 #else
-	#define VIT 
+	#define VIT
 #endif
 
 using namespace log4cxx;
+
+namespace trace_api = opentelemetry::trace;
+namespace context     = opentelemetry::context;
+namespace nostd     = opentelemetry::nostd;
 
 class UrlExtractionValue
 {
@@ -79,6 +87,8 @@ public:
 	typedef enum{ProtRawRtp, ProtSip, ProtSkinny, ProtUnkn} ProtocolEnum;
 	static int ProtocolToEnum(CStdString& protocol);
 	static CStdString ProtocolToString(int protocolEnum);
+
+	std::shared_ptr<trace_api::Scope> Scope();
 
 	VoIpSession(CStdString& trackingId);
 	void Stop();
@@ -191,6 +201,7 @@ private:
 	unsigned int m_ssrcCandidateTimestamp;
 	std::map<unsigned int, int> m_loggedSsrcMap;
 	SipInfoRef m_lastSipInfo;
+	nostd::shared_ptr<trace_api::Span> m_span;
 };
 typedef oreka::shared_ptr<VoIpSession> VoIpSessionRef;
 

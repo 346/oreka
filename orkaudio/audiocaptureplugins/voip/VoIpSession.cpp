@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -81,10 +81,22 @@ VoIpSession::VoIpSession(CStdString& trackingId) : OrkSession(&DLLCONFIG),
 	m_numAlienRtpPacketsS2 = 0;
 	m_ssrcCandidate = -1;
 	m_mappedS1S2 =  false;
+	auto tracer = LOG.GetTracer("VoIpSession");
+	trace_api::StartSpanOptions options;
+    opentelemetry::context::Context root;
+    root = root.SetValue(trace_api::kIsRootSpanKey, true);
+	options.parent = root;
+	m_span = tracer->StartSpan("VoIpSession", {}, options);
+}
+
+std::shared_ptr<trace_api::Scope> VoIpSession::Scope() {
+	std::shared_ptr<trace_api::Scope> scope(new trace_api::Scope(m_span));
+	return scope;
 }
 
 void VoIpSession::Stop()
 {
+	auto scope = Scope();
 	CStdString logMsg;
 	logMsg.Format("[%s] %s Session stop, numRtpPkts:%d dupl:%d seqDelta:%d rtpNumMissingPkts:%d rtpNumSeqGaps:%d lastUpdated:%u", m_trackingId, m_capturePort, m_numRtpPackets, m_hasDuplicateRtp, m_highestRtpSeqNumDelta, m_rtpNumMissingPkts, m_rtpNumSeqGaps, m_lastUpdated);
 	LOG4CXX_INFO(m_log, logMsg);
@@ -181,6 +193,7 @@ void VoIpSession::Stop()
 		g_captureEventCallBack(stopEvent, m_capturePort);
 		m_stopped = true;
 	}
+	m_span->End();
 }
 
 bool VoIpSession::Stopped()
@@ -220,9 +233,9 @@ void VoIpSession::ReportRtcpSrcDescription(RtcpSrcDescriptionPacketInfoRef& rtcp
 		{
 			m_localParty = VoIpSessionsSingleton::instance()->GetLocalPartyMap(rtcpInfo->m_cnameUsername);
 		}
-			
+
 		LOG4CXX_INFO(m_log, "[" + m_trackingId + "] Set local party to RTCP CNAME:" + m_localParty);
-		
+
 		// In some cases, we obtain this information after the session
 		// has long started.  Therefore, in order for the reporting
 		// to reflect the RTCP CNAME information, we need to report.
@@ -262,7 +275,7 @@ void VoIpSession::ReportRtcpSrcDescription(RtcpSrcDescriptionPacketInfoRef& rtcp
 		{
 			testParty = rtcpInfo->m_cnameUsername;
 		}
-			
+
 		if(testParty.Equals(m_localParty) == false)
 		{
 			m_rtcpRemoteParty = true;
@@ -292,6 +305,8 @@ void VoIpSession::ReportRtcpSrcDescription(RtcpSrcDescriptionPacketInfoRef& rtcp
 
 void VoIpSession::Start()
 {
+	auto scope = Scope();
+	m_span->AddEvent("Start");
 	m_beginDate = time(NULL);
 	if(m_started == false)
 	{
@@ -702,7 +717,7 @@ void VoIpSession::ProcessMetadataSip(RtpPacketInfoRef& rtpPacket)
 		m_remoteParty = m_invite->m_sipDialedNumber;
 		m_localParty = m_invite->m_to;
 		m_direction = CaptureEvent::DirOut;
-	
+
 		return;
 	}
 
@@ -871,7 +886,7 @@ void VoIpSession::ReportMetadata()
 	CaptureEventRef event(new CaptureEvent());
 	event->m_type = CaptureEvent::EtLocalParty;
 	// TODO, we might consider deprecating m_skinnyNameAsLocalParty in favour of m_localPartyUseName at some point
-	if( ( m_protocol == ProtSkinny && DLLCONFIG.m_skinnyNameAsLocalParty == true && m_localPartyName.size() )   || 
+	if( ( m_protocol == ProtSkinny && DLLCONFIG.m_skinnyNameAsLocalParty == true && m_localPartyName.size() )   ||
 		( (DLLCONFIG.m_partiesUseName || DLLCONFIG.m_localPartyUseName) == true && m_localPartyName.size() )		 )
 	{
 		if(DLLCONFIG.m_localPartyAddLocalIp == true)
@@ -1049,11 +1064,11 @@ bool VoIpSession::AddRtpPacket(RtpPacketInfoRef& rtpPacket)
 			m_loggedSsrcMap.insert(std::make_pair(rtpPacket->m_ssrc, 1));
 		}
 	}
-	
+
 	if( m_metadataProcessed == false )
 	{
 		m_metadataProcessed = true;
-		
+
 		if(m_protocol == ProtRawRtp)
 		{
 			ProcessMetadataRawRtp(rtpPacket);
@@ -1147,13 +1162,13 @@ bool VoIpSession::AddRtpPacket(RtpPacketInfoRef& rtpPacket)
 			if( rtpPacket->m_payloadType > 18 )
 			{
 				// Some telephony systems have RTP "keepalive" packets while on hold in the dynamic payload type range. Ignore them.
-				
-				return true; // dismiss packet 
+
+				return true; // dismiss packet
 			}
 
 			if( (rtpPacket->m_arrivalTimestamp - m_lastRtpPacket->m_arrivalTimestamp) >  1)
 			{
-				// There's been an RTP interruption of a least 1 second, 
+				// There's been an RTP interruption of a least 1 second,
 				// presence of new RTP indicates session has gone out of hold
 				logMsg =  "[" + m_trackingId + "] Session going off hold due to RTP activity";
 				LOG4CXX_INFO(m_log, logMsg);
@@ -1186,10 +1201,10 @@ bool VoIpSession::AddRtpPacket(RtpPacketInfoRef& rtpPacket)
 			{
 				double timestampDelta = (double)rtpPacket->m_timestamp - (double)m_lastRtpPacketSide1->m_timestamp;
 				if(	abs(seqNumDelta) > m_minRtpSeqDelta  &&
-					abs(timestampDelta) > m_minRtpTimestampDelta)	
+					abs(timestampDelta) > m_minRtpTimestampDelta)
 				{
-					logMsg.Format("[%s] RTP discontinuity s1: before: seq:%u ts:%u after: seq:%u ts:%u", 
-						m_trackingId, m_lastRtpPacketSide1->m_seqNum, m_lastRtpPacketSide1->m_timestamp, 
+					logMsg.Format("[%s] RTP discontinuity s1: before: seq:%u ts:%u after: seq:%u ts:%u",
+						m_trackingId, m_lastRtpPacketSide1->m_seqNum, m_lastRtpPacketSide1->m_timestamp,
 						rtpPacket->m_seqNum, rtpPacket->m_timestamp);
 					LOG4CXX_INFO(m_log, logMsg);
 					return false;
@@ -1412,7 +1427,7 @@ bool VoIpSession::AddRtpPacket(RtpPacketInfoRef& rtpPacket)
 	{
 		// We've got enough packets to start the session.
 		// For Raw RTP, the high number is to make sure we have a "real" raw RTP session, not a leftover from a SIP/Skinny session
-		if(CONFIG.m_lookBackRecording == true) 
+		if(CONFIG.m_lookBackRecording == true)
 		{
 			if(CONFIG.m_discardUnidirectionalCalls) {
 				m_startWhenReceiveS2 = true;
@@ -1428,12 +1443,12 @@ bool VoIpSession::AddRtpPacket(RtpPacketInfoRef& rtpPacket)
 	if(m_started)
 	{
 		CStdString payloadType;
-	
+
 		payloadType.Format("%d",rtpPacket->m_payloadType);
 
 		for(std::list<CStdString>::iterator it = CONFIG.m_speexPayloadTypes.begin() ; it != CONFIG.m_speexPayloadTypes.end() ; it++)
 		{
-			if( *it == payloadType ) 
+			if( *it == payloadType )
 			{
 				rtpPacket->m_payloadType = pt_SPEEX;
 				break;
@@ -1610,7 +1625,7 @@ void VoIpSession::ReportSipInvite(SipInviteInfoRef& invite)
 		event->m_type = CaptureEvent::EtRemoteParty;
 		event->m_value = m_remoteParty;
 		g_captureEventCallBack(event, m_capturePort);
-		
+
 
 		event.reset(new CaptureEvent());
 		event->m_type = CaptureEvent::EtDirection;
@@ -1649,7 +1664,7 @@ void VoIpSession::ReportSipInvite(SipInviteInfoRef& invite)
 	{
 		std::map<CStdString, CStdString>::iterator i = invite->m_extractedFields.begin();
 		for( ; i != invite->m_extractedFields.end(); ++i )
-		{		
+		{
 			// Report Key Values to Audio Tape
 			CaptureEventRef event(new CaptureEvent());
 			event->m_type = CaptureEvent::EtKeyValue;
@@ -1913,7 +1928,7 @@ void VoIpSession::SkinnyTrackConferencesTransfers(CStdString callId, CStdString 
 		LOG4CXX_INFO(m_log, logMsg);
 		return;
 	}
-	
+
 	if((time_now - endpoint->m_lastConferencePressed) > 3 && (time_now - endpoint->m_lastConnectedWithConference) > 3)
 	{
 		endpoint->m_origOrkUid = "";
@@ -1988,10 +2003,11 @@ void VoIpSessions::ReportSipInvite(SipInviteInfoRef& invite)
 	}
 	if(session.get())
 	{
+		auto scope = session->Scope();
 		// A session already exists on this media address
 		if(session->m_protocol == VoIpSession::ProtRawRtp)
 		{
-			// Do nothing here so that we end up stopping this Raw RTP session 
+			// Do nothing here so that we end up stopping this Raw RTP session
 			// and creating new session below
 		}
 	    else if(session->m_protocol == VoIpSession::ProtSip && DLLCONFIG.m_rtpAllowMultipleMappings == true)
@@ -2042,6 +2058,7 @@ void VoIpSessions::ReportSipInvite(SipInviteInfoRef& invite)
 	{
 		// The session already exists
 		VoIpSessionRef session = pair->second;
+		auto scope = session->Scope();
 
 		/*
 		 * If the sendonly attribute is present then our call is
@@ -2086,6 +2103,7 @@ void VoIpSessions::ReportSipInvite(SipInviteInfoRef& invite)
 	// create new session and insert into both maps
 	CStdString trackingId = m_alphaCounter.GetNext();
 	VoIpSessionRef newSession(new VoIpSession(trackingId));
+	auto scope = newSession->Scope();
 	if(DLLCONFIG.m_sipCallPickUpSupport)
 	{
 		TrySessionCallPickUp(invite->m_replacesId, newSession->m_isCallPickUp);
@@ -2150,6 +2168,7 @@ void VoIpSessions::ReportSipErrorPacket(SipFailureMessageInfoRef& info)
 	if (pair != m_byCallId.end())
 	{
 		VoIpSessionRef session = pair->second;
+		auto scope = session->Scope();
 
 		if(info->m_errorCode == "407")
 		{
@@ -2237,7 +2256,7 @@ void VoIpSessions::ReportSip200Ok(Sip200OkInfoRef info)
 		{
 			SetMediaAddress(session, info->m_mediaIp, mediaPort);
 		}
-		else if(info->m_hasSdp && DLLCONFIG.m_sipUse200OkMediaAddress && !session->m_numRtpPackets) 
+		else if(info->m_hasSdp && DLLCONFIG.m_sipUse200OkMediaAddress && !session->m_numRtpPackets)
 		{
 			// Session has not yet received RTP packets
 			if(!session->m_rtpIp.s_addr || DLLCONFIG.m_rtpAllowMultipleMappings)
@@ -2284,6 +2303,7 @@ void VoIpSessions::ReportSipBye(SipByeInfoRef& bye)
 	{
 		// Session found: stop it
 		VoIpSessionRef session = pair->second;
+		auto scope = session->Scope();
 
 		session->ReportSipBye(bye);
 		Stop(session);
@@ -2327,7 +2347,7 @@ void VoIpSessions::ReportSipNotify(SipNotifyInfoRef& notify)
 	}
 
 	if (notify->m_dsp.size() < 4) {
-		return; 
+		return;
 	}
 
 	if (session) {
@@ -2472,7 +2492,7 @@ void VoIpSessions::UpdateSessionWithCallInfo(SkCallInfoStruct* callInfo, VoIpSes
 		if(rp.length() > 0)
 		{
 			session->m_remoteParty = GetLocalPartyMap(rp);
-		}		
+		}
 		session->m_direction = CaptureEvent::DirOut;
 		break;
 	default:
@@ -2487,7 +2507,7 @@ void VoIpSessions::UpdateSessionWithCallInfo(SkCallInfoStruct* callInfo, VoIpSes
 		if(rp.length() > 0)
 		{
 			session->m_remoteParty = GetLocalPartyMap(rp);
-		}		
+		}
 	}
 }
 
@@ -2701,11 +2721,11 @@ void VoIpSessions::ReportSkinnyCallInfo(SkCallInfoStruct* callInfo, IpHeaderStru
 
 	if (pair != m_byCallId.end())
 	{
-		// CM can resend the same message more than once in a session, 
+		// CM can resend the same message more than once in a session,
 		// just update timestamp
 		VoIpSessionRef existingSession = pair->second;
 		existingSession->m_skinnyLastCallInfoTime.GetTimeNow();
-		
+
 		CStdString oldVal = existingSession->m_remoteParty;;
 
 		if(DLLCONFIG.m_skinnyAllowCallInfoUpdate)
@@ -2877,7 +2897,7 @@ VoIpSessionRef VoIpSessions::findByEndpointIpUsingIpAndPort(struct in_addr endpo
 	return session;
 }
 
-// Find a session by Skinny endpoint IP address. 
+// Find a session by Skinny endpoint IP address.
 // If a passThruPartyId is supplied, only returns session matching both criteria
 VoIpSessionRef VoIpSessions::findByEndpointIp(struct in_addr endpointIpAddr, int passThruPartyId)
 {
@@ -3133,7 +3153,7 @@ void VoIpSessions::SetMediaAddress(VoIpSessionRef& session, struct in_addr media
 
 		return;
 	}
-	
+
 	if(!DLLCONFIG.m_mediaAddressAllowedIpRanges.Empty())
 	{
 		if(DLLCONFIG.m_mediaAddressAllowedIpRanges.Matches(mediaIp) == false)
@@ -3321,7 +3341,7 @@ void VoIpSessions::ReportSkinnyOpenReceiveChannelAck(SkOpenReceiveChannelAckStru
 				{
 					CStdString lp(szEndpointIp);
 					session->m_localParty = GetLocalPartyMap(lp);
-				}	
+				}
 				SetMediaAddress(session, openReceive->endpointIpAddr, openReceive->endpointTcpPort);
 			}
 		}
@@ -3366,7 +3386,7 @@ void VoIpSessions::ReportSkinnyStartMediaTransmission(SkStartMediaTransmissionSt
 				// create new session and insert into the ipAndPort
 				CStdString trackingId = m_alphaCounter.GetNext();
 				VoIpSessionRef session(new VoIpSession(trackingId));
-				session->m_endPointIp = ipHeader->ip_dest;	// CallInfo StartMediaTransmission always goes from CM to endpoint 
+				session->m_endPointIp = ipHeader->ip_dest;	// CallInfo StartMediaTransmission always goes from CM to endpoint
 				session->m_protocol = VoIpSession::ProtSkinny;
 				session->m_endPointSignallingPort = ntohs(tcpHeader->dest);
 				session->m_skinnyPassThruPartyId = startMedia->passThruPartyId;
@@ -3379,7 +3399,7 @@ void VoIpSessions::ReportSkinnyStartMediaTransmission(SkStartMediaTransmissionSt
 				{
 					CStdString lp(szEndpointIp);
 					session->m_localParty = GetLocalPartyMap(lp);
-				}	
+				}
 				SetMediaAddress(session, startMedia->remoteIpAddr, startMedia->remoteTcpPort);
 			}
 		}
@@ -3681,6 +3701,7 @@ VoIpEndpointInfoRef VoIpSessions::GetVoIpEndpointInfo(struct in_addr endpointIp,
 
 void VoIpSessions::Stop(VoIpSessionRef& session)
 {
+	auto scope = session->Scope();
 	TaggingSipTransferCalls(session);
 	session->Stop();
 
@@ -3701,6 +3722,7 @@ void VoIpSessions::Stop(VoIpSessionRef& session)
 bool VoIpSessions::ReportRtcpSrcDescription(RtcpSrcDescriptionPacketInfoRef& rtcpInfo)
 {
 	VoIpSessionRef session;
+	auto scope = session->Scope();
 
 	session = findByMediaAddress(rtcpInfo->m_sourceIp, rtcpInfo->m_sourcePort - 1);
 	if(session.get() != NULL)
@@ -3761,8 +3783,8 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 		}
 	}
 
-	// Add RTP packet to session with matching source or dest IP+Port. 
-	// On CallManager there might be two sessions with two different CallIDs for one 
+	// Add RTP packet to session with matching source or dest IP+Port.
+	// On CallManager there might be two sessions with two different CallIDs for one
 	// phone call, so this RTP packet can potentially be reported to two sessions.
 
 	// Does a session exist with this source Ip+Port
@@ -3771,6 +3793,7 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 	{
 		// Found a session give it the RTP packet info
 		session = session1;
+		auto scope = session->Scope();
 		sourceAddressIsTracked = true;
 		if(session1->AddRtpPacket(rtpPacket))
 		{
@@ -3789,6 +3812,7 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 	{
 		// Found a session give it the RTP packet info
 		session = session2;
+		auto scope = session->Scope();
 		if(session2->AddRtpPacket(rtpPacket))
 		{
 			numSessionsFound++;
@@ -3878,7 +3902,7 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 			else
 			{
 				mergerSession = session2;
-				mergeeSession = session1;		
+				mergeeSession = session1;
 			}
 		}
 
@@ -3886,12 +3910,12 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 		if(DLLCONFIG.IsRtpTrackingIpAddress(rtpPacket->m_sourceIp))
 		{
 			mergerSession = session1;
-			mergeeSession = session2;	
+			mergeeSession = session2;
 		}
 		else if(DLLCONFIG.IsRtpTrackingIpAddress(rtpPacket->m_destIp))
 		{
 			mergerSession = session2;
-			mergeeSession = session1;	
+			mergeeSession = session1;
 		}
 
 		if(m_log->isInfoEnabled())
@@ -3971,6 +3995,7 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 		CStdString trackingId = m_alphaCounter.GetNext();
 		VoIpSessionRef session(new VoIpSession(trackingId));
 		session->m_protocol = VoIpSession::ProtRawRtp;
+		auto scope = session->Scope();
 
 		// Make sure the session is tracked by the right IP address
 		struct in_addr rtpIp;
@@ -3992,7 +4017,7 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 			rtpPort = rtpPacket->m_destPort;
 		}
 		// (1) In the case of a PSTN Gateway automated answer, The media address
-		// is the destination IP+Port of the first packet which is good, 
+		// is the destination IP+Port of the first packet which is good,
 		// because it is usually the IP+Port of the PSTN Gateway.
 
 		session->m_endPointIp = rtpIp;
@@ -4395,6 +4420,7 @@ void VoIpSessions::Hoover(time_t now)
 	for (std::list<VoIpSessionRef>::iterator it = toDismiss.begin(); it != toDismiss.end() ; it++)
 	{
 		VoIpSessionRef session = *it;
+		auto scope = session->Scope();
 		CStdString logMsg;
 		logMsg.Format("[%s] %s Expired (RTP) ts:%u", session->m_trackingId, MediaAddressToString(session->m_ipAndPort), session->m_lastUpdated);
 		LOG4CXX_INFO(m_log, logMsg);
@@ -4439,6 +4465,7 @@ void VoIpSessions::Hoover(time_t now)
 	for (std::list<VoIpSessionRef>::iterator it2 = toDismiss.begin(); it2 != toDismiss.end() ; it2++)
 	{
 		VoIpSessionRef session = *it2;
+		auto scope = session->Scope();
 		CStdString logMsg;
 		logMsg.Format("[%s] %s Expired (CallID) ts:%u", session->m_trackingId, MediaAddressToString(session->m_ipAndPort), session->m_lastUpdated);
 		Stop(session);
@@ -4553,12 +4580,12 @@ CStdString VoIpSessions::StartCapture(CStdString& party, CStdString& side)
 		session->MarkAsOnDemand(side);
 
 		logMsg.Format("[%s] StartCapture: Started capture, party:%s side:%s(%d)", session->m_trackingId, party, side, CaptureEvent::AudioKeepDirectionToEnum(side));
-	}	
+	}
 	else
 	{
 		logMsg.Format("StartCapture: No session has party %s side:%s", party, side);
 	}
-	
+
 	LOG4CXX_INFO(m_log, logMsg);
 
 	return orkUid;
@@ -4587,12 +4614,12 @@ CStdString VoIpSessions::PauseCapture(CStdString& party)
 	if(found)
 	{
 		logMsg.Format("[%s] PauseCapture: Paused capture, party:%s", session->m_trackingId, party);
-	}	
+	}
 	else
 	{
 		logMsg.Format("PauseCapture: No session has party %s", party);
 	}
-	
+
 	LOG4CXX_INFO(m_log, logMsg);
 
 	return orkUid;
@@ -4683,6 +4710,7 @@ CStdString VoIpSessions::StopCapture(CStdString& party, CStdString& qos)
 
 	if(found)
 	{
+		auto scope = session->Scope();
 		logMsg.Format("[%s] StopCapture: stopping capture, party:%s", session->m_trackingId, party);
 		LOG4CXX_INFO(m_log, logMsg);
 
@@ -4696,7 +4724,7 @@ CStdString VoIpSessions::StopCapture(CStdString& party, CStdString& qos)
 
 		m_byIpAndPort.insert(std::make_pair(newSession->m_ipAndPort, newSession));
 		m_byCallId.insert(std::make_pair(newSession->m_callId, newSession));
-	}	
+	}
 	else
 	{
 		logMsg.Format("StopCapture: No session has party %s", party);

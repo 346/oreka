@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -17,6 +17,8 @@
 #include "AudioCapture.h"
 #include "dll.h"
 #include "OrkBase.h"
+
+#include <opentelemetry/trace/scope.h>
 
 class FilterConfigurationParameters
 {
@@ -53,6 +55,8 @@ public:
 	virtual void __CDECL__ SetSessionInfo(CStdString& trackingId);
 	virtual void __CDECL__ Configure(FilterConfigurationParametersRef configParams);
 	virtual void __CDECL__ SetNumOutputChannels(int numChan);
+	virtual std::shared_ptr<opentelemetry::trace::Scope> __CDECL__ Scope();
+
 protected:
 	CStdString m_trackingId;
 	int m_numOutputChannels;

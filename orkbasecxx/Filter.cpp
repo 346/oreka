@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -43,9 +43,14 @@ void Filter::SetNumOutputChannels(int numChan)
 	m_numOutputChannels = numChan;
 }
 
-void FilterRegistry::RegisterFilter(FilterRef& Filter) 
+void FilterRegistry::RegisterFilter(FilterRef& Filter)
 {
 	m_Filters.push_back(Filter);
+}
+
+std::shared_ptr<opentelemetry::trace::Scope> Filter::Scope()
+{
+	return nullptr;
 }
 
 
@@ -56,7 +61,7 @@ FilterRef FilterRegistry::GetNewFilter(AudioEncodingEnum inputEncoding, AudioEnc
 		FilterRef Filter = *it;
 
 		if(	Filter->GetInputAudioEncoding() == inputEncoding &&
-			Filter->GetOutputAudioEncoding() == outputEncoding ) 
+			Filter->GetOutputAudioEncoding() == outputEncoding )
 		{
 			return Filter->Instanciate();
 		}
@@ -71,7 +76,7 @@ FilterRef FilterRegistry::GetNewFilter(int rtpPayloadType)
 	{
 		FilterRef Filter = *it;
 
-		if(Filter->SupportsInputRtpPayloadType(rtpPayloadType) == true) 
+		if(Filter->SupportsInputRtpPayloadType(rtpPayloadType) == true)
 		{
 			return Filter->Instanciate();
 		}
@@ -86,7 +91,7 @@ FilterRef FilterRegistry::GetNewFilter(CStdString& filterName)
 	{
 		FilterRef Filter = *it;
 
-		if(	Filter->GetName().CompareNoCase(filterName) == 0 ) 
+		if(	Filter->GetName().CompareNoCase(filterName) == 0 )
 		{
 			return Filter->Instanciate();
 		}
@@ -140,7 +145,7 @@ void AlawToPcmFilter::AudioChunkIn(AudioChunkRef& inputAudioChunk)
 	outputDetails.m_numBytes = numSamples*2;
 	short* outputBuffer = (short*)m_outputAudioChunk->CreateBuffer(outputDetails);
 	char* inputBuffer = (char*)inputAudioChunk->m_pBuffer;
-	
+
 
 	for(int i=0; i<numSamples; i++)
 	{
@@ -219,12 +224,12 @@ void UlawToPcmFilter::AudioChunkIn(AudioChunkRef& inputAudioChunk)
 	outputDetails.m_numBytes = numSamples*2;
 	short* outputBuffer = (short*)m_outputAudioChunk->CreateBuffer(outputDetails);
 	char* inputBuffer = (char*)inputAudioChunk->m_pBuffer;
-	
+
 
 	for(int i=0; i<numSamples; i++)
 	{
 		outputBuffer[i] = (short)ulaw2linear(inputBuffer[i]);
-	}	
+	}
 }
 
 void UlawToPcmFilter::AudioChunkOut(AudioChunkRef& chunk)

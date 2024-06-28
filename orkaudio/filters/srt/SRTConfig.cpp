@@ -31,7 +31,7 @@ void SRTConfig::Define(Serializer* s) {
     s->StringValue(SRT_QUERY_NAME_PARAM, m_srtQuery);
     s->IntValue(LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD, m_queueFlushThresholdMillis);
     s->StringValue(LIVE_STREAMING_SERVICE_NAME_PARAM, m_serviceName);
-    LOG4CXX_INFO(s_log, "SRTFilter Endpoints")
+    LOG4CXX_INFO(s_log, "SRTFilter Endpoints");
     for (const auto host : m_srtServerHosts) {
        LOG4CXX_INFO(s_log, boost::format("* %s") % host.c_str());
     }
