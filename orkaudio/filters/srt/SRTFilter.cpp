@@ -30,7 +30,7 @@ SRTFilter::SRTFilter() :
 
 	auto tracer = LOG.GetTracer("SRTFilter");
 
-	m_span = tracer->StartSpan("start");
+	m_span = tracer->StartSpan("SRTFilter");
 
 }
 
@@ -142,6 +142,7 @@ void SRTFilter::PushToSRT(AudioChunkDetails& channelDetails, char * firstChannel
 	if (!outputBuffer) {
 		logMsg.Format("SRTFilter::Send [%s] Memory allocation failed.", m_orkRefId);
 		LOG4CXX_ERROR(s_log, logMsg);
+		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 		m_status = false;
 		return;
 	}
@@ -156,6 +157,7 @@ void SRTFilter::PushToSRT(AudioChunkDetails& channelDetails, char * firstChannel
 	{
 		logMsg.Format("SRTFilter::Send [%s] error:%s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_ERROR(s_log, logMsg);
+		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 		m_status = false;
 		return;
 	}
@@ -221,11 +223,13 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 		if (m_callId.empty()) {
 			logMsg.Format("SRTFilter:: Start[%s] Failed for Empty Call ID", m_orkRefId);
 			LOG4CXX_ERROR(s_log, logMsg);
+			m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 			return;
 		}
 		if (m_orkUid.empty()) {
 			logMsg.Format("SRTFilter:: Start[%s] Failed for Empty Ork UID", m_orkUid);
 			LOG4CXX_ERROR(s_log, logMsg);
+			m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 			return;
 		}
 
@@ -262,6 +266,7 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 					m_status = false;
 					logMsg.Format("[%s] streamid error %s", m_orkRefId, srt_getlasterror_str());
 					LOG4CXX_ERROR(s_log, logMsg);
+					m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 					return;
 				}
 			}
@@ -271,6 +276,7 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 					m_status = false;
 					logMsg.Format("[%s] passphrase error %s", m_orkRefId, srt_getlasterror_str());
 					LOG4CXX_ERROR(s_log, logMsg);
+					m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 					return;
 				}
 			}
@@ -316,6 +322,7 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 		} else {
 			logMsg.Format("[%s] error srt_connect", m_orkRefId);
 			LOG4CXX_ERROR(s_log, logMsg);
+			m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 			m_status = false;
 			m_span->AddEvent("srtfilter-failed");
 			return;

@@ -319,6 +319,7 @@ void VoIpSession::Start()
 	startEvent->m_value = m_trackingId;
 	CStdString timestamp = IntToString(startEvent->m_timestamp);
 	LOG4CXX_INFO(m_log,  "[" + m_trackingId + "] " + m_capturePort + " " + ProtocolToString(m_protocol) + " Session start, timestamp:" + timestamp);
+
 	g_captureEventCallBack(startEvent, m_capturePort);
 
 	if (DLLCONFIG.m_SkinnyTrackConferencesTransfers == true)
@@ -909,6 +910,7 @@ void VoIpSession::ReportMetadata()
 	}
 	g_captureEventCallBack(event, m_capturePort);
 	m_localPartyReported = true;
+	m_span->SetAttribute("localparty", std::string(event->m_value));
 
 	// Report remote party
 	event.reset(new CaptureEvent());
@@ -923,6 +925,7 @@ void VoIpSession::ReportMetadata()
 	}
 	g_captureEventCallBack(event, m_capturePort);
 	m_remotePartyReported = true;
+	m_span->SetAttribute("remoteparty", std::string(event->m_value));
 
 	// Report local entry point
 	if(m_localEntryPoint.size())
@@ -959,30 +962,35 @@ void VoIpSession::ReportMetadata()
 	event->m_type = CaptureEvent::EtDirection;
 	event->m_value = CaptureEvent::DirectionToString(m_direction);
 	g_captureEventCallBack(event, m_capturePort);
+	m_span->SetAttribute("direction", std::string(event->m_value));
 
 	// Report Local IP address
 	event.reset(new CaptureEvent());
 	event->m_type = CaptureEvent::EtLocalIp;
 	event->m_value = szLocalIp;
 	g_captureEventCallBack(event, m_capturePort);
+	m_span->SetAttribute("localip", std::string(event->m_value));
 
 	// Report Remote IP address
 	event.reset(new CaptureEvent());
 	event->m_type = CaptureEvent::EtRemoteIp;
 	event->m_value = szRemoteIp;
 	g_captureEventCallBack(event, m_capturePort);
+	m_span->SetAttribute("remoteip", std::string(event->m_value));
 
 	// Report OrkUid
 	event.reset(new CaptureEvent());
 	event->m_type = CaptureEvent::EtOrkUid;
 	event->m_value = m_orkUid;
 	g_captureEventCallBack(event, m_capturePort);
+	m_span->SetAttribute("orkuid", std::string(event->m_value));
 
 	// Report native Call ID
 	event.reset(new CaptureEvent());
 	event->m_type = CaptureEvent::EtCallId;
 	event->m_value = m_callId;
 	g_captureEventCallBack(event, m_capturePort);
+	m_span->SetAttribute("callid", std::string(event->m_value));
 
 	if(m_onDemand == true)
 	{
@@ -1016,6 +1024,7 @@ void VoIpSession::GoOnHold(time_t onHoldTime)
 	{
 		return;
 	}
+	m_span->AddEvent("onhold", {{"time", static_cast<int64_t>(onHoldTime)}});
 	m_onHold = true;
 	m_holdBegin = onHoldTime;
 	if(CONFIG.m_holdResumeReportDuration || CONFIG.m_holdResumeReportEvents){
@@ -1028,9 +1037,10 @@ void VoIpSession::GoOnHold(time_t onHoldTime)
 
 void VoIpSession::GoOffHold(time_t offHoldTime)
 {
-        m_lastUpdated = offHoldTime;
+	m_lastUpdated = offHoldTime;
 	m_onHold = false;
 	m_holdDuration += offHoldTime - m_holdBegin;
+	m_span->AddEvent("offhold", {{"time", static_cast<int64_t>(offHoldTime)}, {"duration", m_holdDuration}});
 
 	if(DLLCONFIG.m_holdReportStats)
 	{
@@ -1481,6 +1491,7 @@ bool VoIpSession::AddRtpPacket(RtpPacketInfoRef& rtpPacket)
 
 void VoIpSession::ReportSipBye(SipByeInfoRef& bye)
 {
+	m_span->AddEvent("bye");
 	CStdString byeString;
 	CStdString logMsg;
 
@@ -1560,6 +1571,7 @@ bool IsNecExternal(SipInviteInfoRef& invite) {
 
 void VoIpSession::ReportSipNotify(SipNotifyInfoRef& notify)
 {
+	m_span->AddEvent("notify");
 	if (IsNecExternal(m_invite))
 	{
 		if (m_started) {
@@ -1603,6 +1615,7 @@ void VoIpSession::LogRtpPayloadMap()
 
 void VoIpSession::ReportSipInvite(SipInviteInfoRef& invite)
 {
+	m_span->AddEvent("invite", {{"method", std::string(invite->m_sipMethod)}});
 	if(DLLCONFIG.m_sipMetadataUseLastInvite || m_invite.get() == NULL)
 	{
 		m_invite = invite;
@@ -1700,6 +1713,7 @@ void VoIpSession::ReportSipInvite(SipInviteInfoRef& invite)
 
 void VoIpSession::ReportSipInfo(SipInfoRef& info)
 {
+	auto scope = Scope();
 	if(m_lastSipInfo.get() != NULL && m_lastSipInfo->m_cSeq.CompareNoCase(info->m_cSeq) == 0)
 	{
 		return;
@@ -1725,6 +1739,8 @@ void VoIpSession::ReportSipInfo(SipInfoRef& info)
 
 void VoIpSession::ReportSipRefer(SipReferRef& info)
 {
+	auto scope = Scope();
+	m_span->AddEvent("refer");
 	info->m_origOrkUid = m_orkUid;
 	CaptureEventRef event (new CaptureEvent());
 	event->m_type = CaptureEvent::EtKeyValue;
@@ -2250,6 +2266,7 @@ void VoIpSessions::ReportSip200Ok(Sip200OkInfoRef info)
 	if (pair != m_byCallId.end())
 	{
 		VoIpSessionRef session = pair->second;
+		auto scope = session->Scope();
 		unsigned short mediaPort = std::atoi(info->m_mediaPort);
 
 		if(info->m_hasSdp && DLLCONFIG.m_sipUse200OkMediaAddress && DLLCONFIG.m_sipDynamicMediaAddress)
@@ -3142,6 +3159,7 @@ void VoIpSessions::SetMediaAddress(VoIpSessionRef& session, struct in_addr media
 	{
 		return;
 	}
+	auto scope = session->Scope();
 	if(DLLCONFIG.m_mediaAddressBlockedIpRanges.Matches(mediaIp))
 	{
 		char szMediaIp[16];
@@ -3917,9 +3935,12 @@ void VoIpSessions::ReportRtpPacket(RtpPacketInfoRef& rtpPacket)
 			mergerSession = session2;
 			mergeeSession = session1;
 		}
+		mergerSession->m_span->AddEvent("merger", {{"callid", std::string(mergeeSession->m_callId)}});
+		mergeeSession->m_span->AddEvent("mergee", {{"callid", std::string(mergerSession->m_callId)}});
 
 		if(m_log->isInfoEnabled())
 		{
+			auto scope = mergeeSession->Scope();
 			CStdString debug;
 			debug.Format("Merging [%s] %s with callid:%s into [%s] %s with callid:%s",
 				mergeeSession->m_trackingId, MediaAddressToString(mergeeSession->m_ipAndPort), mergeeSession->m_callId,

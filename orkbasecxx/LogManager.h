@@ -24,34 +24,46 @@ using namespace log4cxx;
 
 #include <opentelemetry/instrumentation/log4cxx/appender.h>
 
-#include <opentelemetry/sdk/version/version.h>
+#include "opentelemetry/sdk/version/version.h"
 
 #include <opentelemetry/exporters/ostream/span_exporter_factory.h>
 #include <opentelemetry/exporters/ostream/log_record_exporter_factory.h>
+#include <opentelemetry/exporters/ostream/metric_exporter_factory.h>
 
 #include <opentelemetry/exporters/otlp/otlp_file_log_record_exporter_factory.h>
 #include <opentelemetry/exporters/otlp/otlp_file_metric_exporter_factory.h>
-#include <opentelemetry/logs/provider.h>
-#include <opentelemetry/sdk/logs/exporter.h>
-#include <opentelemetry/sdk/logs/logger_provider_factory.h>
-#include <opentelemetry/sdk/logs/processor.h>
-#include <opentelemetry/sdk/logs/simple_log_record_processor_factory.h>
-
 #include <opentelemetry/exporters/otlp/otlp_file_exporter_factory.h>
+
+#include <opentelemetry/exporters/otlp/otlp_grpc_log_record_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_grpc_metric_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_grpc_exporter_factory.h>
+
+#include <opentelemetry/exporters/otlp/otlp_http_log_record_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_http_metric_exporter_factory.h>
+#include <opentelemetry/exporters/otlp/otlp_http_exporter_factory.h>
+
+#include "opentelemetry/sdk/logs/exporter.h"
+#include "opentelemetry/sdk/logs/logger_provider_factory.h"
+#include "opentelemetry/sdk/logs/processor.h"
+#include "opentelemetry/sdk/logs/simple_log_record_processor_factory.h"
+
+#include "opentelemetry/logs/provider.h"
+#include "opentelemetry/metrics/meter_provider.h"
+#include "opentelemetry/metrics/provider.h"
+#include "opentelemetry/trace/provider.h"
+#include "opentelemetry/trace/propagation/http_trace_context.h"
+
 #include <opentelemetry/sdk/trace/exporter.h>
 #include <opentelemetry/sdk/trace/processor.h>
 #include <opentelemetry/sdk/trace/simple_processor_factory.h>
 #include <opentelemetry/sdk/trace/tracer_provider_factory.h>
-#include "opentelemetry/metrics/meter_provider.h"
-#include "opentelemetry/metrics/provider.h"
 #include "opentelemetry/sdk/metrics/aggregation/aggregation_config.h"
-#include "opentelemetry/sdk/metrics/export/periodic_exporting_metric_reader_factory.h"
-#include "opentelemetry/sdk/metrics/export/periodic_exporting_metric_reader_options.h"
 #include "opentelemetry/sdk/metrics/instruments.h"
 #include "opentelemetry/sdk/metrics/meter_provider.h"
 #include "opentelemetry/sdk/metrics/meter_provider_factory.h"
 #include "opentelemetry/sdk/metrics/metric_reader.h"
 #include "opentelemetry/sdk/metrics/meter_context.h"
+#include "opentelemetry/sdk/metrics/meter_context_factory.h"
 #include "opentelemetry/sdk/metrics/push_metric_exporter.h"
 #include "opentelemetry/sdk/metrics/state/filtered_ordered_attribute_map.h"
 #include "opentelemetry/sdk/metrics/view/instrument_selector.h"
@@ -60,22 +72,26 @@ using namespace log4cxx;
 #include "opentelemetry/sdk/metrics/view/meter_selector_factory.h"
 #include "opentelemetry/sdk/metrics/view/view.h"
 #include "opentelemetry/sdk/metrics/view/view_factory.h"
-#include <opentelemetry/trace/provider.h>
-#include <opentelemetry/sdk/resource/resource.h>
+#include "opentelemetry/sdk/metrics/view/view_registry_factory.h"
+#include "opentelemetry/sdk/resource/resource.h"
+#include "opentelemetry/sdk/metrics/export/periodic_exporting_metric_reader_factory.h"
 
 #include "opentelemetry/context/propagation/global_propagator.h"
 #include "opentelemetry/context/propagation/text_map_propagator.h"
-#include "opentelemetry/trace/propagation/http_trace_context.h"
+
+#include "opentelemetry/nostd/string_view.h"
+#include "opentelemetry/nostd/shared_ptr.h"
 
 namespace metrics_sdk = opentelemetry::sdk::metrics;
 namespace metrics_api = opentelemetry::metrics;
+namespace metrics_exp = opentelemetry::exporter::metrics;
 namespace otlp = opentelemetry::exporter::otlp;
 namespace logs_api = opentelemetry::logs;
 namespace logs_sdk = opentelemetry::sdk::logs;
+namespace log_exp = opentelemetry::exporter::logs;
 namespace trace_api = opentelemetry::trace;
 namespace trace_sdk = opentelemetry::sdk::trace;
 namespace trace_exp = opentelemetry::exporter::trace;
-namespace log_exp = opentelemetry::exporter::logs;
 namespace resource = opentelemetry::sdk::resource;
 
 namespace nostd = opentelemetry::nostd;
@@ -87,7 +103,8 @@ public:
 	static OrkLogManager* Instance();
 
 	void Initialize();
-	nostd::shared_ptr<trace_api::Tracer> GetTracer(std::string name);
+	nostd::shared_ptr<trace_api::Tracer> GetTracer(nostd::string_view name);
+	nostd::shared_ptr<metrics_api::Meter> GetMeter(nostd::string_view name);
 	void Shutdown();
 
 	LoggerPtr rootLog;

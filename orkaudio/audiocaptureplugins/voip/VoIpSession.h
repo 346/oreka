@@ -46,6 +46,7 @@ using namespace log4cxx;
 namespace trace_api = opentelemetry::trace;
 namespace context     = opentelemetry::context;
 namespace nostd     = opentelemetry::nostd;
+namespace common = opentelemetry::common;
 
 class UrlExtractionValue
 {
@@ -167,6 +168,7 @@ public:
 	unsigned int m_ssrcCandidate;
 	void ReportMetadataUpdateSkinny();
 	bool m_hasReceivedCallInfo;
+	nostd::shared_ptr<trace_api::Span> m_span;
 
 private:
 	void ProcessMetadataSip(RtpPacketInfoRef&);
@@ -201,7 +203,6 @@ private:
 	unsigned int m_ssrcCandidateTimestamp;
 	std::map<unsigned int, int> m_loggedSsrcMap;
 	SipInfoRef m_lastSipInfo;
-	nostd::shared_ptr<trace_api::Span> m_span;
 };
 typedef oreka::shared_ptr<VoIpSession> VoIpSessionRef;
 

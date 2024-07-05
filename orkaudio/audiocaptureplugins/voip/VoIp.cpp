@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -44,6 +44,12 @@
 #include "Iax2Parsers.h"
 #include "SizedBuffer.h"
 
+#include "opentelemetry/metrics/meter.h"
+#include "opentelemetry/nostd/shared_ptr.h"
+namespace nostd       = opentelemetry::nostd;
+namespace metrics_api = opentelemetry::metrics;
+
+
 extern AudioChunkCallBackFunction g_audioChunkCallBack;
 extern CaptureEventCallBackFunction g_captureEventCallBack;
 extern OrkLogManager* g_logManager;
@@ -80,6 +86,8 @@ static unsigned int s_numLostTcpPacketsInUdpMode;
 static int s_mtuMaxSize;
 static int s_tcpListenerSock;
 
+static nostd::shared_ptr<metrics_api::Counter<uint64_t>> s_numPacketsCounter;
+
 SizedBufferRef HandleIpFragment(IpHeaderStruct* ipHeader);
 
 const int pcap_live_snaplen = 65535;
@@ -107,6 +115,9 @@ public:
 	unsigned int m_numDropped10s;
 	unsigned int m_numIfDropped;
 	unsigned int m_numIfDropped10s;
+	nostd::shared_ptr<metrics_api::Counter<uint64_t>> m_numReceivedCounter;
+	nostd::shared_ptr<metrics_api::Counter<uint64_t>> m_numDroppedCounter;
+	nostd::shared_ptr<metrics_api::Counter<uint64_t>> m_numIfDroppedCounter;
 };
 typedef oreka::shared_ptr<PcapHandleData> PcapHandleDataRef;
 //========================================================
@@ -361,7 +372,7 @@ bool TryRtp(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct* ipHeader, UdpH
 
 	if (rtpHeader->version == 2 && rtpHeader->cc == 0 && rtpHeader->p == 0)
 	{
-		if((!(ntohs(udpHeader->source)%2) && !(ntohs(udpHeader->dest)%2)) || DLLCONFIG.m_rtpDetectOnOddPorts)	// udp ports usually even 
+		if((!(ntohs(udpHeader->source)%2) && !(ntohs(udpHeader->dest)%2)) || DLLCONFIG.m_rtpDetectOnOddPorts)	// udp ports usually even
 		{
 			pair = DLLCONFIG.m_rtpPayloadTypeBlockList.find(rtpHeader->pt);
 			if(pair != DLLCONFIG.m_rtpPayloadTypeBlockList.end())
@@ -396,7 +407,7 @@ bool TryRtp(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct* ipHeader, UdpH
 				return true;
 			}
 
-			if((rtpHeader->pt <= 34 &&  rtpHeader->pt != 13) || (rtpHeader->pt >= 96 && rtpHeader->pt < 128) )         
+			if((rtpHeader->pt <= 34 &&  rtpHeader->pt != 13) || (rtpHeader->pt >= 96 && rtpHeader->pt < 128) )
 			// pt=13 is CN (Comfort Noise)
 			// pt=34 is H263
 			// pt=97 is IAX2 iLBC payload
@@ -702,9 +713,9 @@ void ProcessVXLANPacket(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct* ip
 	{
 		encapsulatedIpHeader = (IpHeaderStruct*)((char*)encapsulatedEthernetHeader + sizeof(EthernetHeaderStruct));
 	}
-	else 
+	else
 	{   //Maybe corrupted pcap
-		return; 
+		return;
 	}
 
 	if(TryIpPacketV4(encapsulatedIpHeader) != true)
@@ -737,7 +748,7 @@ void ProcessTransportLayer(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct*
 		{
 			ProcessVXLANPacket(ethernetHeader, ipHeader, ipHeaderLength, ipPacketEnd);
 		}
-		else 
+		else
 		{
 			DetectUsefulUdpPacket(ethernetHeader, ipHeader, ipHeaderLength, ipPacketEnd);
 		}
@@ -764,7 +775,7 @@ void ProcessTransportLayer(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct*
 			{
 				encapsulatedEthernetHeader = (EthernetHeaderStruct *)((char *)ipHeader + ipHeaderLength +  sizeof(GreHeaderStruct));
 			}
-			
+
 			IpHeaderStruct* encapsulatedIpHeader = NULL;
 
 			if(ntohs(encapsulatedEthernetHeader->type) == ETHER_TYPE_IEEE8021Q)
@@ -799,6 +810,8 @@ void ProcessTransportLayer(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct*
 void HandlePacket(u_char *param, const struct pcap_pkthdr *header, const u_char *pkt_data)
 {
 	time_t now = time(NULL);
+
+	s_numPacketsCounter->Add(1);
 
 	s_numPackets++;
 	s_numPacketsPerSecond++;
@@ -939,7 +952,7 @@ void HandlePacket(u_char *param, const struct pcap_pkthdr *header, const u_char 
 	}
 
 	if (DLLCONFIG.m_ipFragmentsReassemble && ipHeader->isFragmented()) {
-		SizedBufferRef packetData = HandleIpFragment(ipHeader);	
+		SizedBufferRef packetData = HandleIpFragment(ipHeader);
 		if (packetData) { // Packet data will return non-empty when the packet is complete
 			ProcessTransportLayer(ethernetHeader,reinterpret_cast<IpHeaderStruct*>(packetData->get()) );
 		}
@@ -1064,7 +1077,7 @@ void UdpListenerThread()
 	apr_status_t ret;
 	apr_sockaddr_t* sa;
     apr_socket_t* socket;
-	
+
 	apr_sockaddr_info_get(&sa, NULL, APR_INET, DLLCONFIG.m_orekaEncapsulationPort, 0, AprLp);
     apr_socket_create(&socket, sa->family, SOCK_DGRAM, APR_PROTO_UDP, AprLp);
 
@@ -1085,7 +1098,7 @@ void UdpListenerThread()
 
 	struct pcap_pkthdr pcap_headerPtr ;
 	u_char param;
-	
+
 	bool stop = false;
 	while(stop != true)
 	{
@@ -1160,6 +1173,10 @@ PcapHandleData::PcapHandleData(pcap_t* pcaphandle ,const char *name): ifName(nam
 	m_numDropped10s = 0;
 	m_numIfDropped = 0;
 	m_numIfDropped10s = 0;
+	auto meter = g_logManager->GetMeter("pcap_" + ifName);
+	m_numReceivedCounter = meter->CreateUInt64Counter("orkaudio.pcap.received", "number of packeets received", "packets");
+	m_numDroppedCounter = meter->CreateUInt64Counter("orkaudio.pcap.dropped", "number of packets dropped because there was no room in the operating system's buffer when they arrived, because packets weren't being read fast enough", "packets");
+	m_numIfDroppedCounter = meter->CreateUInt64Counter("orkaudio.pcap.if_dropped", "number of packets dropped by the network interface or its driver", "packets");
 }
 //=======================================================
 VoIp::VoIp()
@@ -1210,7 +1227,7 @@ void VoIp::OpenPcapDirectory(CStdString& path)
 		apr_finfo_t finfo;
 		apr_int32_t wanted = APR_FINFO_NAME | APR_FINFO_SIZE;
 		while((ret = apr_dir_read(&finfo, wanted, dir)) == APR_SUCCESS)
-		{	
+		{
 			CStdString dirEntryFilename;
 			dirEntryFilename.Format("%s",finfo.name);
 			CStdString pcapExtension = ".pcap";
@@ -1256,9 +1273,9 @@ char* VoIp::ApplyPcapFilter(pcap_t* pcapHandle)
 			logMsg.Format("pcap_compile: Please check your PcapFilter in config.xml; pcap handle:%x", pcapHandle);
 			LOG4CXX_ERROR(s_packetLog, logMsg);
 
-		} 
+		}
 		if(error == NULL && pcap_setfilter(pcapHandle,&fp) == -1)
-		{ 
+		{
 			error = pcap_geterr(pcapHandle);
 			logMsg.Format("pcap_setfilter: Please check your PcapFilter in config.xml; pcap handle:%x", pcapHandle);
 			LOG4CXX_ERROR(s_packetLog, logMsg);
@@ -1312,7 +1329,7 @@ bool VoIp::SetPcapSocketBufferSize(pcap_t* pcapHandle)
 	{
 		if(setsockopt(pcapFileno, SOL_SOCKET, SO_RCVBUF, &bufSize, sizeof(bufSize)) == 0)
 		{
-			logMsg = "success";		
+			logMsg = "success";
 		}
 	}
 	logMsg.Format("Setting pcap socket buffer size:%u bytes ... %s", bufSize, logMsg);
@@ -1323,7 +1340,7 @@ bool VoIp::SetPcapSocketBufferSize(pcap_t* pcapHandle)
 	{
 		if(pcap_setbuff(pcapHandle, bufSize) == 0)
 		{
-			logMsg = "success";	
+			logMsg = "success";
 		}
 		logMsg.Format("Setting pcap socket buffer size:%u bytes ... %s", bufSize, logMsg);
 		LOG4CXX_INFO(s_packetLog, logMsg);
@@ -1537,6 +1554,9 @@ void VoIp::OpenDevices()
 	s_maxPacketsPerSecond = 0;
 	pcap_t* pcapHandle = NULL;
 
+	auto meter = g_logManager->GetMeter("VoIp");
+	s_numPacketsCounter = meter->CreateUInt64Counter("orkaudio.voip.received", "number of packets received", "packets");
+
 	CStdString logMsg;
 
 	char errorBuf[PCAP_ERRBUF_SIZE];
@@ -1575,7 +1595,7 @@ void VoIp::OpenDevices()
 #else
 					pcapHandle = OpenPcapDeviceLive(device->name);
 #endif
-					
+
 					if(pcapHandle)
 					{
 						error = ApplyPcapFilter(pcapHandle);
@@ -1719,14 +1739,14 @@ void VoIp::LoadPartyMaps()
 		{
 			//the file was already loaded and there has been no change since then
 			return;
-		}		
+		}
 		else
 		{
 			logMsg.Format("Detected %s modification, timestamp:%lu oldtimestamp:%lu", LOCAL_PARTY_MAP_FILE, finfo.st_mtime, m_lastModLocalPartyMapTs);
 			LOG4CXX_INFO(s_packetLog, logMsg);
 			m_lastModLocalPartyMapTs = finfo.st_mtime;
 			VoIpSessionsSingleton::instance()->ClearLocalPartyMap();
-		}		
+		}
 	}
 
 	FILE *maps = NULL;
@@ -1900,6 +1920,9 @@ void VoIp::ReportPcapStats()
 				pcapHandleData->m_numReceived = stats.ps_recv;
 				pcapHandleData->m_numDropped = stats.ps_drop;
 				pcapHandleData->m_numIfDropped = stats.ps_ifdrop;
+				pcapHandleData->m_numReceivedCounter->Add(pcapHandleData->m_numReceived10s);
+				pcapHandleData->m_numDroppedCounter->Add(pcapHandleData->m_numDropped10s);
+				pcapHandleData->m_numIfDroppedCounter->Add(pcapHandleData->m_numIfDropped10s);
 				logMsg.Format("%s: handle:%x received:%u received10s:%u dropped:%u dropped10s:%u ifdropped:%u ifdropped10s:%u",
 							   pcapHandleData->ifName,pcapHandleData->m_pcapHandle, stats.ps_recv, pcapHandleData->m_numReceived10s,
 							   stats.ps_drop, pcapHandleData->m_numDropped10s, pcapHandleData->m_numIfDropped, pcapHandleData->m_numIfDropped10s);
@@ -1925,7 +1948,7 @@ void VoIp::Run()
 			handler.detach();
 		} catch(const std::exception &ex){
 			logMsg.Format("Failed to start UdpListenerThread thread reason:%s",  ex.what());
-			LOG4CXX_ERROR(s_packetLog, logMsg);	
+			LOG4CXX_ERROR(s_packetLog, logMsg);
 		}
 #ifndef WIN32
 		try{
@@ -1933,7 +1956,7 @@ void VoIp::Run()
 			handler.detach();
 		} catch(const std::exception &ex){
 			logMsg.Format("Failed to start TcpListenerThread thread reason:%s",  ex.what());
-			LOG4CXX_ERROR(s_packetLog, logMsg);	
+			LOG4CXX_ERROR(s_packetLog, logMsg);
 		}
 #endif
 	}
@@ -1945,7 +1968,7 @@ void VoIp::Run()
 			handler.detach();
 		} catch(const std::exception &ex){
 			logMsg.Format("Failed to start SingleDeviceCaptureThreadHandler thread reason:%s",  ex.what());
-			LOG4CXX_ERROR(s_packetLog, logMsg);	
+			LOG4CXX_ERROR(s_packetLog, logMsg);
 		}
 	}
 
@@ -2081,7 +2104,7 @@ void HandleTcpConnection(int clientSock)
 		bufferPos = bufferPos + size;
 		wantedLen = sizeof(OrkEncapsulationStruct);
 		isFullLen = true;
-		
+
 		while(size != wantedLen)		// while() read header
 		{
 			if(size > wantedLen)
@@ -2262,7 +2285,7 @@ void TcpListenerThread()
 			handler.detach();
 		} catch(const std::exception &ex){
 			logMsg.Format("Failed to start HandleTcpConnection thread reason:%s",  ex.what());
-			LOG4CXX_ERROR(LOG.rootLog, logMsg);	
+			LOG4CXX_ERROR(LOG.rootLog, logMsg);
 		}
 
 	}
