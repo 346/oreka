@@ -30,6 +30,7 @@
 #include <boost/uuid/uuid_io.hpp>
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/asio/io_context.hpp>
 
 
 #include "opentelemetry/exporters/ostream/span_exporter_factory.h"
@@ -61,10 +62,21 @@
 
 namespace trace_api = opentelemetry::trace;
 namespace trace_sdk = opentelemetry::sdk::trace;
-namespace context     = opentelemetry::context;
+namespace context   = opentelemetry::context;
 namespace nostd     = opentelemetry::nostd;
 
+
 using namespace boost::uuids;
+
+struct SrtFilterStats {
+	int CloseWaitSecond;
+	int ReceivedRightPacket;
+	int ReceivedLeftPacket;
+	int ReceivedPacket;
+	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0) {}
+};
+
+
 
 class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 	public:
@@ -83,6 +95,8 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void __CDECL__ CaptureEventIn(CaptureEventRef &event);
 		void __CDECL__ CaptureEventOut(CaptureEventRef &event);
 		void __CDECL__ SetSessionInfo(CStdString &trackingId);
+		static boost::asio::io_context io;
+		static boost::asio::io_context::work work;
 
 	private:
 		AudioChunkRef m_outputAudioChunk;
@@ -100,6 +114,7 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		bool m_isFirstPacket = true;
 		int m_currentBufferChannel;
 		std::mt19937 m_rng;
+		std::vector<int>m_shuffledHostIndexes;
 		u_int32_t m_timestamp = 0;
 		RingBuffer<AudioChunkRef> m_bufferQueueA;
 		RingBuffer<AudioChunkRef> m_bufferQueueB;
@@ -109,6 +124,8 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void PushToSRT(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
 		std::string GetURL(std::string liveStreamingId, std::map<std::string, std::string> &headers);
 		nostd::shared_ptr<trace_api::Span> m_span;
+		std::atomic<bool> m_connected;
+		SrtFilterStats m_stats;
 };
 
 class SrtTextMapCarrier : public opentelemetry::context::propagation::TextMapCarrier

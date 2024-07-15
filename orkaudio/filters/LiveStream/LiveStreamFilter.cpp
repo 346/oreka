@@ -377,7 +377,7 @@ extern "C"
         LOG4CXX_INFO(s_log, "LiveStream  filter initialized");
 
         LiveStreamServer *liveStreamServer = new LiveStreamServer(LIVESTREAMCONFIG.m_serverPort);
-        liveStreamServer->Run();
+        // liveStreamServer->Run();
     }
 
 }

@@ -70,7 +70,7 @@ std::unique_ptr<metrics_sdk::PushMetricExporter> createFileMetricExporter() {
 void initOtelLog(resource::Resource resource) {
 	std::unique_ptr<logs_sdk::LogRecordExporter> logsExporter;
 	auto otlpLogsProto = getEnv("OTEL_EXPORTER_OTLP_LOGS_PROTOCOL", "file");
-	auto logsExporterName = getEnv("OTEL_LOGS_EXPORTER", "console");
+	auto logsExporterName = getEnv("OTEL_LOGS_EXPORTER", "otlp");
 
 	if (logsExporterName == "console") {
 		logsExporter = log_exp::OStreamLogRecordExporterFactory::Create();
@@ -101,7 +101,7 @@ void initOtelLog(resource::Resource resource) {
 void initOtelTrace(resource::Resource resource) {
 	std::unique_ptr<trace_sdk::SpanExporter> spanExporter;
 	auto otlpTracesProto = getEnv("OTEL_EXPORTER_OTLP_TRACES_PROTOCOL", "file");
-	auto tracesExporterName = getEnv("OTEL_TRACES_EXPORTER", "console");
+	auto tracesExporterName = getEnv("OTEL_TRACES_EXPORTER", "otlp");
 	if (tracesExporterName == "console") {
 		spanExporter = trace_exp::OStreamSpanExporterFactory::Create();
 	} else if (tracesExporterName == "otlp") {
@@ -136,7 +136,7 @@ void initOtelMetric(resource::Resource resource) {
 	// metrics
 	std::unique_ptr<metrics_sdk::PushMetricExporter> metricExporter;
 	auto otlpMetricsProto = getEnv("OTEL_EXPORTER_OTLP_METRICS_PROTOCOL", "file");
-	auto metricsExporterName = getEnv("OTEL_METRICS_EXPORTER", "console");
+	auto metricsExporterName = getEnv("OTEL_METRICS_EXPORTER", "otlp");
 	if (metricsExporterName == "console") {
 		metricExporter = metrics_exp::OStreamMetricExporterFactory::Create();
 	} else if (metricsExporterName == "otlp") {
