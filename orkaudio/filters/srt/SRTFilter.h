@@ -73,10 +73,14 @@ struct SrtFilterStats {
 	int ReceivedRightPacket;
 	int ReceivedLeftPacket;
 	int ReceivedPacket;
-	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0) {}
+	int OverflowPacket;
+	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0), OverflowPacket(0) {}
 };
 
-
+struct SrtChunk {
+	char* buffer;
+	int size;
+};
 
 class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 	public:
@@ -118,10 +122,13 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		u_int32_t m_timestamp = 0;
 		RingBuffer<AudioChunkRef> m_bufferQueueA;
 		RingBuffer<AudioChunkRef> m_bufferQueueB;
+		RingBuffer<SrtChunk> m_pushQueue;
 		bool m_useBufferA = true;
 		char * m_silentChannelBuffer = NULL;
 		std::string m_srtUrl;
-		void PushToSRT(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
+		void PushToSRT(char* buffer, int size);
+		void AddQueue(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
+		bool DequeueAndProcess();
 		std::string GetURL(std::string liveStreamingId, std::map<std::string, std::string> &headers);
 		nostd::shared_ptr<trace_api::Span> m_span;
 		std::atomic<bool> m_connected;

@@ -27,8 +27,8 @@ static std::regex placeholderPattern("\\{([a-zA-Z0-9_]+)\\}");
 SRTFilter::SRTFilter() :
 	m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
 	m_bufferQueueB(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
+	m_pushQueue(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
 	m_connected(false),
-
 	m_rng(std::random_device()()) {
 	std::vector<int> indices(SRTCONFIG.m_srtAddresses.size());
 	std::iota(indices.begin(), indices.end(), 0);
@@ -94,67 +94,58 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 		}
 		std::fill_n(m_silentChannelBuffer, inputDetails.m_numBytes, 255);
 	}
-	if (!m_status) {
-		if (m_connected) {
-			m_status = true;
+	char *bufferedChunk;
+	char *newChunk;
+	char *leftChunk;
+	char *rightChunk;
+	RingBuffer<AudioChunkRef> *currentBufferQueue;
+	RingBuffer<AudioChunkRef> *standbyBufferQueue;
+	if (m_useBufferA) {
+		currentBufferQueue = &m_bufferQueueA;
+		standbyBufferQueue = &m_bufferQueueB;
+	} else {
+		currentBufferQueue = &m_bufferQueueB;
+		standbyBufferQueue = &m_bufferQueueA;
+	}
+	boost::optional<AudioChunkRef> queuedChunk;
+	if (inputDetails.m_channel == m_currentBufferChannel) {
+		if (queuedChunk = currentBufferQueue->put(inputAudioChunk)){
+			newChunk = m_silentChannelBuffer;
+			bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
 		} else {
 			return;
 		}
-	}
-	if (m_status) {
-		char *bufferedChunk;
-		char *newChunk;
-		char *leftChunk;
-		char *rightChunk;
-		RingBuffer<AudioChunkRef> *currentBufferQueue;
-		RingBuffer<AudioChunkRef> *standbyBufferQueue;
-		if (m_useBufferA) {
-			currentBufferQueue = &m_bufferQueueA;
-			standbyBufferQueue = &m_bufferQueueB;
+	} else {
+		if (queuedChunk = currentBufferQueue->get()){
+			newChunk = newBuffer;
+			bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
 		} else {
-			currentBufferQueue = &m_bufferQueueB;
-			standbyBufferQueue = &m_bufferQueueA;
-		}
-		boost::optional<AudioChunkRef> queuedChunk;
-		if (inputDetails.m_channel == m_currentBufferChannel) {
-			if (queuedChunk = currentBufferQueue->put(inputAudioChunk)){
-				newChunk = m_silentChannelBuffer;
-				bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
-			} else {
-				return;
-			}
-		} else {
-			if (queuedChunk = currentBufferQueue->get()){
-				newChunk = newBuffer;
-				bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
-			} else {
-				m_useBufferA = !m_useBufferA;
-				m_currentBufferChannel = inputDetails.m_channel;
+			m_useBufferA = !m_useBufferA;
+			m_currentBufferChannel = inputDetails.m_channel;
 
-				if (queuedChunk = standbyBufferQueue->put(inputAudioChunk)) {
-					LOG4CXX_ERROR(s_log, "Standby buffer has chunk");
-					m_status = false;
-				}
-				return;
+			if (queuedChunk = standbyBufferQueue->put(inputAudioChunk)) {
+				LOG4CXX_ERROR(s_log, "Standby buffer has chunk");
+				m_status = false;
 			}
+			return;
 		}
-		if (m_currentBufferChannel == 1) {
-			leftChunk = bufferedChunk;
-			rightChunk = newChunk;
-		} else {
-			leftChunk = newChunk;
-			rightChunk = bufferedChunk;
-		}
-		PushToSRT(inputDetails, leftChunk, rightChunk);
 	}
+	if (m_currentBufferChannel == 1) {
+		leftChunk = bufferedChunk;
+		rightChunk = newChunk;
+	} else {
+		leftChunk = newChunk;
+		rightChunk = bufferedChunk;
+	}
+	AddQueue(inputDetails, leftChunk, rightChunk);
+	DequeueAndProcess();
 }
 
-void SRTFilter::PushToSRT(AudioChunkDetails& channelDetails, char * firstChannelBuffer, char * secondChannelBuffer) {
-	CStdString logMsg;
+void SRTFilter::AddQueue(AudioChunkDetails& channelDetails, char * firstChannelBuffer, char * secondChannelBuffer) {
 	int size = channelDetails.m_numBytes * 2;
-	m_timestamp += G711_PACKET_INTERVAL;
 	char *outputBuffer = (char *)malloc(size);
 	if (!outputBuffer) {
+		CStdString logMsg;
 		logMsg.Format("SRTFilter::Send [%s] Memory allocation failed.", m_orkRefId);
 		LOG4CXX_ERROR(s_log, logMsg);
 		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
@@ -167,9 +158,36 @@ void SRTFilter::PushToSRT(AudioChunkDetails& channelDetails, char * firstChannel
 		outputBuffer[i * 2] = firstChannelBuffer[i];
 		outputBuffer[i * 2 + 1] = secondChannelBuffer[i];
 	}
+	auto chunk = SrtChunk{outputBuffer, size};
+	if (auto overflow = m_pushQueue.put(chunk)) {
+		m_stats.OverflowPacket++;
+		free(overflow->buffer);
+	}
+}
 
+bool SRTFilter::DequeueAndProcess() {
+	if (!m_status) {
+		if (m_connected) {
+			m_status = true;
+		} else {
+			return false;
+		}
+	}
+	if (m_status) {
+		if (auto chunk = m_pushQueue.get()) {
+			PushToSRT(chunk->buffer, chunk->size);
+			free(chunk->buffer);
+			return true;
+		} else {
+			return false;
+		}
+	}
+}
+
+void SRTFilter::PushToSRT(char * outputBuffer, int size) {
 	if (srt_sendmsg(m_srtsock, outputBuffer, size, -1, false) == SRT_ERROR)
 	{
+		CStdString logMsg;
 		logMsg.Format("SRTFilter::Send [%s] error:%s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_ERROR(s_log, logMsg);
 		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
@@ -249,76 +267,74 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 		}
 
 		io.post([&]() {
-		CStdString logMsg;
+			CStdString logMsg;
 
-		context::Context empty;
-		auto ctx = trace_api::SetSpan(empty, m_span);
+			context::Context empty;
+			auto ctx = trace_api::SetSpan(empty, m_span);
 
-		SrtTextMapCarrier carrier;
-		auto prop = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
-		prop->Inject(carrier, ctx);
+			SrtTextMapCarrier carrier;
+			auto prop = context::propagation::GlobalTextMapPropagator::GetGlobalPropagator();
+			prop->Inject(carrier, ctx);
 
-		const uuid streamingUuid = random_generator()();
-		auto liveStreamingId = boost::lexical_cast<std::string>(streamingUuid);
-		for(auto carrierHeader : carrier.headers_) {
-			LOG4CXX_DEBUG(s_log, carrierHeader.first);
-			LOG4CXX_DEBUG(s_log, carrierHeader.second);
-		}
-		logMsg.Format("SRTFilter:: Start[%s] LiveStreamingId %s", m_orkRefId, liveStreamingId);
-		std::string url = GetURL(liveStreamingId, carrier.headers_);
-		logMsg.Format("SRTFilter:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
-		LOG4CXX_DEBUG(s_log, logMsg);
-
-		UriParser u(url);
-
-		srt_setloglevel(srt_logging::LogLevel::debug);
-
-		m_srtsock = srt_create_socket();
-		auto params = u.parameters();
-		for (const auto& param : params) {
-			const auto& key = param.first;
-			const auto& value = param.second;
-			LOG4CXX_DEBUG(s_log, key);
-			LOG4CXX_DEBUG(s_log, value);
-			const bool no = false;
-			if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_SNDSYN, &no, sizeof(no))) {
-				m_status = false;
-				logMsg.Format("[%s] sndsyn error %s", m_orkRefId, srt_getlasterror_str());
-				LOG4CXX_ERROR(s_log, logMsg);
-				m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
-				return;
+			const uuid streamingUuid = random_generator()();
+			auto liveStreamingId = boost::lexical_cast<std::string>(streamingUuid);
+			for(auto carrierHeader : carrier.headers_) {
+				LOG4CXX_DEBUG(s_log, carrierHeader.first);
+				LOG4CXX_DEBUG(s_log, carrierHeader.second);
 			}
+			logMsg.Format("SRTFilter:: Start[%s] LiveStreamingId %s", m_orkRefId, liveStreamingId);
+			std::string url = GetURL(liveStreamingId, carrier.headers_);
+			logMsg.Format("SRTFilter:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
+			LOG4CXX_DEBUG(s_log, logMsg);
 
-			const int32_t timeout = 2000;
-			if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_CONNTIMEO, &timeout, sizeof(timeout))) {
-				m_status = false;
-				logMsg.Format("[%s] conn timeout error %s", m_orkRefId, srt_getlasterror_str());
-				LOG4CXX_ERROR(s_log, logMsg);
-				m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
-				return;
-			}
-			if (key == "streamid") {
-				if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_STREAMID, value.c_str(), value.length())) {
+			UriParser u(url);
+
+			srt_setloglevel(srt_logging::LogLevel::debug);
+
+			m_srtsock = srt_create_socket();
+			auto params = u.parameters();
+			for (const auto& param : params) {
+				const auto& key = param.first;
+				const auto& value = param.second;
+				LOG4CXX_DEBUG(s_log, key);
+				LOG4CXX_DEBUG(s_log, value);
+				const bool no = false;
+				if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_SNDSYN, &no, sizeof(no))) {
 					m_status = false;
-					logMsg.Format("[%s] streamid error %s", m_orkRefId, srt_getlasterror_str());
+					logMsg.Format("[%s] sndsyn error %s", m_orkRefId, srt_getlasterror_str());
 					LOG4CXX_ERROR(s_log, logMsg);
 					m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 					return;
 				}
-			}
 
-			if (key == "passphrase") {
-				if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_PASSPHRASE, value.c_str(), value.length())) {
+				const int32_t timeout = 2000;
+				if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_CONNTIMEO, &timeout, sizeof(timeout))) {
 					m_status = false;
-					logMsg.Format("[%s] passphrase error %s", m_orkRefId, srt_getlasterror_str());
+					logMsg.Format("[%s] conn timeout error %s", m_orkRefId, srt_getlasterror_str());
 					LOG4CXX_ERROR(s_log, logMsg);
 					m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 					return;
 				}
+				if (key == "streamid") {
+					if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_STREAMID, value.c_str(), value.length())) {
+						m_status = false;
+						logMsg.Format("[%s] streamid error %s", m_orkRefId, srt_getlasterror_str());
+						LOG4CXX_ERROR(s_log, logMsg);
+						m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
+						return;
+					}
+				}
+
+				if (key == "passphrase") {
+					if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_PASSPHRASE, value.c_str(), value.length())) {
+						m_status = false;
+						logMsg.Format("[%s] passphrase error %s", m_orkRefId, srt_getlasterror_str());
+						LOG4CXX_ERROR(s_log, logMsg);
+						m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
+						return;
+					}
+				}
 			}
-		}
-
-
 			auto scope = Scope();
 			m_span->AddEvent("connect");
 			for (const auto i : m_shuffledHostIndexes) {
