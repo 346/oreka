@@ -1,5 +1,6 @@
 
 #include "SRTConfig.h"
+#include "SRTFilter.h"
 #include <log4cxx/logger.h>
 #include <boost/asio.hpp>
 #include <boost/format.hpp>
@@ -67,12 +68,12 @@ void SRTConfig::Configure(DOMNode* node) {
 }
 
 // ip/hostのリストからIPアドレスのリストを取得する関数
+boost::asio::io_context io;
 vector<address> SRTConfig::ResolveHostname(const list<CStdString>& hostnames) {
   vector<address> addresses;
-	boost::asio::io_context io_context;
   for (const auto& hostname : hostnames) {
     try {
-      udp::resolver resolver(io_context);
+      udp::resolver resolver(io);
       // auto results = resolver.resolve(udp::v4(), string(hostname.c_str()));
 			boost::system::error_code ec;
       auto results = resolver.resolve(string(hostname.c_str()), "6000", ec);
@@ -83,7 +84,7 @@ vector<address> SRTConfig::ResolveHostname(const list<CStdString>& hostnames) {
           if (result.endpoint().address().is_v4()) {
             addresses.push_back(result.endpoint().address());
           } else {
-            LOG4CXX_INFO(s_log, boost::format("Skiped address: %s") % result.endpoint().address().to_string());
+            LOG4CXX_INFO(s_log, boost::format("Skipped address: %s") % result.endpoint().address().to_string());
           }
         }
       }

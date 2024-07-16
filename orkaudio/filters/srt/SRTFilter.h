@@ -9,6 +9,8 @@
 #ifndef __SRT_H__
 #define __SRT_H__ 1
 
+#define BOOST_ASIO_DISABLE_BOOST_COROUTINE
+
 #include "LogManager.h"
 #include "Filter.h"
 #include <log4cxx/logger.h>
@@ -31,6 +33,7 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/asio/io_context.hpp>
+#include <boost/asio/spawn.hpp>
 
 
 #include "opentelemetry/exporters/ostream/span_exporter_factory.h"
@@ -100,7 +103,6 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void __CDECL__ CaptureEventOut(CaptureEventRef &event);
 		void __CDECL__ SetSessionInfo(CStdString &trackingId);
 		static boost::asio::io_context io;
-		static boost::asio::io_context::work work;
 
 	private:
 		AudioChunkRef m_outputAudioChunk;
@@ -114,7 +116,7 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		CStdString m_remoteIp;
 		CStdString m_direction;
 		SRTSOCKET m_srtsock;
-		bool m_status = false;
+		bool m_status = true;
 		bool m_isFirstPacket = true;
 		int m_currentBufferChannel;
 		std::mt19937 m_rng;
@@ -129,9 +131,13 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void PushToSRT(char* buffer, int size);
 		void AddQueue(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
 		bool DequeueAndProcess();
+		void Connect();
+		void Close();
 		std::string GetURL(std::string liveStreamingId, std::map<std::string, std::string> &headers);
 		nostd::shared_ptr<trace_api::Span> m_span;
 		std::atomic<bool> m_connected;
+		std::atomic<bool> m_connecting;
+		std::atomic<bool> m_closeReceived;
 		SrtFilterStats m_stats;
 };
 
