@@ -10,7 +10,8 @@
 
 class SimpleThreadPool {
 	public:
-		explicit SimpleThreadPool(std::size_t numThreads);
+		explicit SimpleThreadPool();
+    void Run(std::size_t numThreads);
     void Stop();
 
 		boost::asio::io_context& GetContext();

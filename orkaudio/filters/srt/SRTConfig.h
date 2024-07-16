@@ -8,6 +8,8 @@
 #include "boost/asio.hpp"
 
 #define SRT_SERVER_HOSTS_NAME_PARAM "SRTServerHosts"
+#define SRT_THREAD_COUNT_NAME_PARAM "SRTThreadCount"
+#define SRT_THREAD_COUNT_DEFAULT 2
 #define SRT_QUERY_NAME_PARAM "SRTQuery"
 #define LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD "LiveStreamingQueueFlushThreshold"
 #define DEFAULT_LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD 500
@@ -37,6 +39,7 @@ class SRTConfig : public Object {
         vector<address> m_srtAddresses;
         int m_queueFlushThresholdMillis;
         CStdString m_serviceName;
+        int m_threadCount;
 };
 
 extern SRTConfig g_SRTConfigObjectRef;

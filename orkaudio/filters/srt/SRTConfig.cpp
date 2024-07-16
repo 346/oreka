@@ -19,12 +19,14 @@ SRTConfig::SRTConfig() {
     m_srtQuery = "";
     m_queueFlushThresholdMillis = DEFAULT_LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD;
     m_serviceName = LIVE_STREAMING_SERVICE_NAME_DEFAULT;
+    m_threadCount = SRT_THREAD_COUNT_DEFAULT;
 }
 
 void SRTConfig::Reset() {
     m_srtQuery = "";
     m_queueFlushThresholdMillis = DEFAULT_LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD;
     m_serviceName = LIVE_STREAMING_SERVICE_NAME_DEFAULT;
+    m_threadCount = SRT_THREAD_COUNT_DEFAULT;
 }
 
 void SRTConfig::Define(Serializer* s) {
@@ -32,6 +34,7 @@ void SRTConfig::Define(Serializer* s) {
     s->StringValue(SRT_QUERY_NAME_PARAM, m_srtQuery);
     s->IntValue(LIVE_STREAMING_QUEUE_FLUSH_THRESHOLD, m_queueFlushThresholdMillis);
     s->StringValue(LIVE_STREAMING_SERVICE_NAME_PARAM, m_serviceName);
+    s->IntValue(SRT_THREAD_COUNT_NAME_PARAM, m_threadCount);
     LOG4CXX_INFO(s_log, "SRTFilter Endpoints");
     for (const auto host : m_srtServerHosts) {
        LOG4CXX_INFO(s_log, boost::format("* %s") % host.c_str());
@@ -42,6 +45,7 @@ void SRTConfig::Define(Serializer* s) {
     for (const auto& address : m_srtAddresses) {
       LOG4CXX_INFO(s_log, boost::format("* %s") % address.to_string());
     }
+    LOG4CXX_INFO(s_log, boost::format("SRT Thread: %d") % m_threadCount);
 }
 void SRTConfig::Validate() {
 }

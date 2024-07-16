@@ -4,7 +4,9 @@
 #include <vector>
 #include "SimpleThreadPool.hpp"
 
-SimpleThreadPool::SimpleThreadPool(std::size_t numThreads) : m_numThreads(numThreads), m_nextContext(0) {
+SimpleThreadPool::SimpleThreadPool() {}
+void SimpleThreadPool::Run(std::size_t numThreads) {
+  m_numThreads = numThreads;
   for (std::size_t i = 0; i < m_numThreads; i++) {
     ctxptr ctx(new boost::asio::io_context);
     m_ctxs.push_back(ctx);

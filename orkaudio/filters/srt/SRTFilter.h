@@ -88,7 +88,7 @@ struct SrtChunk {
 
 class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 	public:
-		SRTFilter();
+		SRTFilter(SimpleThreadPool &pool);
 		~SRTFilter();
 
 		std::shared_ptr<trace_api::Scope> Scope();
@@ -103,7 +103,6 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void __CDECL__ CaptureEventIn(CaptureEventRef &event);
 		void __CDECL__ CaptureEventOut(CaptureEventRef &event);
 		void __CDECL__ SetSessionInfo(CStdString &trackingId);
-		static SimpleThreadPool pool;
 
 	private:
 		AudioChunkRef m_outputAudioChunk;
@@ -140,6 +139,7 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		std::atomic<bool> m_connecting;
 		std::atomic<bool> m_closeReceived;
 		SrtFilterStats m_stats;
+		SimpleThreadPool &pool;
 };
 
 class SrtTextMapCarrier : public opentelemetry::context::propagation::TextMapCarrier

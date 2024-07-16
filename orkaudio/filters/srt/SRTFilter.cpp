@@ -20,9 +20,9 @@
 
 static auto s_log = log4cxx::Logger::getLogger("plugin.srt");
 
-SimpleThreadPool SRTFilter::pool(10);
 static std::regex placeholderPattern("\\{([a-zA-Z0-9_]+)\\}");
-SRTFilter::SRTFilter() :
+SRTFilter::SRTFilter(SimpleThreadPool &pool) :
+	pool(pool),
 	m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
 	m_bufferQueueB(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
 	m_pushQueue(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
@@ -50,7 +50,7 @@ SRTFilter::~SRTFilter() {
 }
 
 FilterRef SRTFilter::Instanciate() {
-	FilterRef Filter(new SRTFilter());
+	FilterRef Filter(new SRTFilter(pool));
 	return Filter;
 }
 
@@ -571,6 +571,7 @@ void SRTFilter::Close() {
 
 extern "C"
 {
+	SimpleThreadPool _pool;
 	DLL_EXPORT void __CDECL__ OrkInitialize()
 	{
 		LOG4CXX_INFO(s_log, "SRTFilter starting");
@@ -579,7 +580,9 @@ extern "C"
 		ConfigManager::Instance()->AddConfigureFunction(SRTConfig::Configure);
 		LOG4CXX_INFO(s_log, "SRTFilter registered");
 
-		FilterRef filter(new SRTFilter());
+		_pool.Run(SRTCONFIG.m_threadCount);
+
+		FilterRef filter(new SRTFilter(_pool));
 		FilterRegistry::instance()->RegisterFilter(filter);
 
 		LOG4CXX_INFO(s_log, "SRTFilter initialized");
