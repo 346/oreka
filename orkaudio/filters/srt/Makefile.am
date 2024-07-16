@@ -1,7 +1,7 @@
 METASOURCES = AUTO
 plugindir= $(prefix)/lib/orkaudio/plugins
 plugin_LTLIBRARIES = srt.la
-srt_la_SOURCES = SRTConfig.cpp SRTFilter.cpp uriparser.cpp
+srt_la_SOURCES = SRTConfig.cpp SRTFilter.cpp uriparser.cpp SimpleThreadPool.cpp
 srt_la_LDFLAGS = -module
 AM_CPPFLAGS = -D_REENTRANT
 srt_la_LIBADD = -llog4cxx -L/usr/lib -lapr-1 -lpthread -ldl -lm -lcrypto -lstdc++ -L/usr/local/lib -lsrt -lboost_coroutine

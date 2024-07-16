@@ -20,8 +20,7 @@
 
 static auto s_log = log4cxx::Logger::getLogger("plugin.srt");
 
-boost::asio::io_context SRTFilter::io;
-static boost::asio::executor_work_guard<boost::asio::io_context::executor_type> work(boost::asio::make_work_guard(SRTFilter::io));
+SimpleThreadPool SRTFilter::pool(10);
 static std::regex placeholderPattern("\\{([a-zA-Z0-9_]+)\\}");
 SRTFilter::SRTFilter() :
 	m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
@@ -263,7 +262,9 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 		}
 
 		m_connecting.store(true);
-		boost::asio::post(SRTFilter::io, [&]() {
+
+		boost::asio::io_context& ctx(pool.GetContext());
+		boost::asio::post(ctx, [&]() {
 			Connect();
 			m_connecting.store(false);
 		});
@@ -271,7 +272,8 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 
 	if (event->m_type == CaptureEvent::EventTypeEnum::EtStop) {
 		m_closeReceived.store(true);
-		boost::asio::post(SRTFilter::io, [&]() {
+		boost::asio::io_context& ctx(pool.GetContext());
+		boost::asio::post(ctx, [&]() {
 			Close();
 		});
 	}
@@ -442,9 +444,10 @@ void SRTFilter::Connect() {
 }
 
 void SRTFilter::Close() {
-	boost::asio::spawn(SRTFilter::io, [&](auto yield) {
+	boost::asio::io_context& ctx(pool.GetContext());
+	boost::asio::spawn(ctx, [&](auto yield) {
 		CStdString logMsg;
-		auto timer = std::make_shared<boost::asio::steady_timer>(SRTFilter::io);
+		auto timer = std::make_shared<boost::asio::steady_timer>(ctx);
 		LOG4CXX_DEBUG(s_log, "start closing");
 		while(true) {
 			if (m_connecting.load()) {
@@ -579,19 +582,6 @@ extern "C"
 		FilterRef filter(new SRTFilter());
 		FilterRegistry::instance()->RegisterFilter(filter);
 
-		try {
-      std::thread([&]() {
-				try {
-					boost::asio::post(SRTFilter::io, [] { });
-					SRTFilter::io.run();
-					LOG4CXX_INFO(s_log, "SRTFilter io_context stopped");
-				} catch (const std::exception& e) {
-					std::cerr << "Exception in thread: " << e.what() << std::endl;
-				}
-      }).detach();
-    } catch (const std::bad_alloc& e) {
-			std::cerr << "Failed to create thread: " << e.what() << std::endl;
-    }
 		LOG4CXX_INFO(s_log, "SRTFilter initialized");
 	}
 

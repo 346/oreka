@@ -14,6 +14,7 @@
 #include "LogManager.h"
 #include "Filter.h"
 #include <log4cxx/logger.h>
+#include "SimpleThreadPool.hpp"
 // #include "Utils.h"
 #include <deque>
 #include "AudioCapture.h"
@@ -102,7 +103,7 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void __CDECL__ CaptureEventIn(CaptureEventRef &event);
 		void __CDECL__ CaptureEventOut(CaptureEventRef &event);
 		void __CDECL__ SetSessionInfo(CStdString &trackingId);
-		static boost::asio::io_context io;
+		static SimpleThreadPool pool;
 
 	private:
 		AudioChunkRef m_outputAudioChunk;
