@@ -1554,9 +1554,6 @@ void VoIp::OpenDevices()
 	s_maxPacketsPerSecond = 0;
 	pcap_t* pcapHandle = NULL;
 
-	auto meter = g_logManager->GetMeter("VoIp");
-	s_numPacketsCounter = meter->CreateUInt64Counter("orkaudio.voip.received", "number of packets received", "packets");
-
 	CStdString logMsg;
 
 	char errorBuf[PCAP_ERRBUF_SIZE];
@@ -1865,6 +1862,9 @@ void VoIp::Initialize()
 	s_rtcpPacketLog = Logger::getLogger("packet.rtcp");
 
 	LOG4CXX_INFO(s_packetLog, "Initializing VoIP plugin");
+
+	auto meter = g_logManager->GetMeter("VoIp");
+	s_numPacketsCounter = meter->CreateUInt64Counter("orkaudio.voip.received", "number of packets received", "packets");
 
 	// create a default config object in case it was not properly initialized by Configure
 	if(!g_VoIpConfigTopObjectRef.get())
