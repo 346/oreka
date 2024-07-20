@@ -133,7 +133,9 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		bool DequeueAndProcess();
 		void Connect();
 		void Close();
-		std::string GetURL(std::string liveStreamingId, std::map<std::string, std::string> &headers);
+		bool SetupSRTSocket(UriParser u);
+		bool TryConnect(UriParser u);
+		std::string GetURL(boost::asio::ip::address address, std::string liveStreamingId, std::map<std::string, std::string> &headers);
 		nostd::shared_ptr<trace_api::Span> m_span;
 		std::atomic<bool> m_connected;
 		std::atomic<bool> m_connecting;
