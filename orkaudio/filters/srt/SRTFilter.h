@@ -36,7 +36,6 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/spawn.hpp>
 
-
 #include "opentelemetry/exporters/ostream/span_exporter_factory.h"
 #include "opentelemetry/nostd/detail/decay.h"
 #include "opentelemetry/nostd/shared_ptr.h"
@@ -78,7 +77,8 @@ struct SrtFilterStats {
 	int ReceivedLeftPacket;
 	int ReceivedPacket;
 	int OverflowPacket;
-	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0), OverflowPacket(0) {}
+	int SentPacket;
+	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0), OverflowPacket(0), SentPacket(0) {}
 };
 
 struct SrtChunk {
@@ -131,10 +131,10 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void PushToSRT(char* buffer, int size);
 		void AddQueue(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
 		bool DequeueAndProcess();
-		void Connect();
+		void Connect(boost::asio::io_context& ctx);
 		void Close();
 		bool SetupSRTSocket(UriParser u);
-		bool TryConnect(UriParser u);
+		bool TryConnect(boost::asio::io_context& ctx, UriParser u);
 		std::string GetURL(boost::asio::ip::address address, std::string liveStreamingId, std::map<std::string, std::string> &headers);
 		nostd::shared_ptr<trace_api::Span> m_span;
 		std::atomic<bool> m_connected;
