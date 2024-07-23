@@ -131,10 +131,10 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		void PushToSRT(char* buffer, int size);
 		void AddQueue(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
 		bool DequeueAndProcess();
-		void Connect(boost::asio::io_context& ctx);
-		void Close();
+		void Connect(boost::asio::yield_context yield);
+		void Close(boost::asio::yield_context yield);
 		bool SetupSRTSocket(UriParser u);
-		bool TryConnect(boost::asio::io_context& ctx, UriParser u);
+		bool TryConnect(boost::asio::yield_context yield, UriParser u);
 		std::string GetURL(boost::asio::ip::address address, std::string liveStreamingId, std::map<std::string, std::string> &headers);
 		nostd::shared_ptr<trace_api::Span> m_span;
 		std::atomic<bool> m_connected;

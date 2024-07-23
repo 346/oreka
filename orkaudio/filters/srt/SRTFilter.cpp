@@ -179,8 +179,8 @@ bool SRTFilter::DequeueAndProcess() {
 }
 
 void SRTFilter::PushToSRT(char* outputBuffer, int size) {
-	if (srt_sendmsg(m_srtsock, outputBuffer, size, -1, false) == SRT_ERROR)
-	{
+	auto ret = srt_sendmsg(m_srtsock, outputBuffer, size, -1, false);
+	if (ret == SRT_ERROR || ret != size) {
 		CStdString logMsg;
 		logMsg.Format("SRTFilter::Send [%s] error:%s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_ERROR(s_log, logMsg);
@@ -264,9 +264,9 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 		m_connecting.store(true);
 
 		boost::asio::io_context& ctx(pool.GetContext());
-		boost::asio::post(ctx, [&]() {
+		boost::asio::spawn(ctx, [&](auto yield) {
 			auto scope = Scope();
-			Connect(ctx);
+			Connect(yield);
 			m_connecting.store(false);
 		});
 	}
@@ -274,9 +274,8 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 	if (event->m_type == CaptureEvent::EventTypeEnum::EtStop) {
 		m_closeReceived.store(true);
 		boost::asio::io_context& ctx(pool.GetContext());
-		boost::asio::post(ctx, [&]() {
-			auto scope = Scope();
-			Close();
+		boost::asio::spawn(ctx, [&](auto yield) {
+			Close(yield);
 		});
 	}
 }
@@ -339,7 +338,7 @@ std::string SRTFilter::GetURL(boost::asio::ip::address address, std::string live
 	return result;
 }
 
-void SRTFilter::Connect(boost::asio::io_context& ctx) {
+void SRTFilter::Connect(boost::asio::yield_context yield) {
 	CStdString logMsg;
 
 	context::Context empty;
@@ -355,8 +354,6 @@ void SRTFilter::Connect(boost::asio::io_context& ctx) {
 		LOG4CXX_DEBUG(s_log, carrierHeader.first);
 		LOG4CXX_DEBUG(s_log, carrierHeader.second);
 	}
-	srt_setloglevel(srt_logging::LogLevel::debug);
-
 	m_span->AddEvent("connect");
 	for (const auto i : m_shuffledHostIndexes) {
 		if (m_closeReceived.load()) {
@@ -372,12 +369,11 @@ void SRTFilter::Connect(boost::asio::io_context& ctx) {
 		if (!SetupSRTSocket(u)) {
 			continue;
 		}
-		if (!TryConnect(ctx, u)) {
+		if (!TryConnect(yield, u)) {
 			continue;
 		}
-		if (!m_connected.load()) {
-			continue;
-		}
+		m_connected.store(true);
+		break;
 	}
 	if (!m_connected.load()) {
 		CStdString logMsg;
@@ -387,7 +383,7 @@ void SRTFilter::Connect(boost::asio::io_context& ctx) {
 		m_span->AddEvent("srtfilter-failed");
 	}
 }
-bool SRTFilter::TryConnect(boost::asio::io_context& ctx, UriParser u) {
+bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 	CStdString logMsg;
 	sockaddr_in addr_in;
 	memset(&addr_in, 0, sizeof(addr_in));
@@ -419,34 +415,36 @@ bool SRTFilter::TryConnect(boost::asio::io_context& ctx, UriParser u) {
 		});
 		return false;
 	}
-	boost::asio::spawn(ctx, [&](auto yield) {
-		auto timer = std::make_shared<boost::asio::steady_timer>(ctx);
-		while(true) {
-			int rlen = 1;
-			int wlen = 1;
-			SRTSOCKET rready;
-			SRTSOCKET wready;
-			if (srt_epoll_wait(epollid, &rready, &rlen, &wready, &wlen, -1, 0, 0, 0, 0) != -1) {
-				SRT_SOCKSTATUS state = srt_getsockstate(m_srtsock);
-				if (state == SRTS_CONNECTED) {
-					logMsg.Format("[%s] connected", m_orkRefId);
-					LOG4CXX_DEBUG(s_log, logMsg);
-					m_connected.store(true);
-					m_span->AddEvent("connected", {
-						{"address", u.hostport()},
-					});
-					return;
-				}
-				if (state == SRTS_BROKEN) {
-					logMsg.Format("[%s] error srt_epoll_wait: state broken, socket %d", m_orkRefId, m_srtsock);
-					LOG4CXX_INFO(s_log, logMsg);
-					return;
-				}
+	auto timer = std::make_shared<boost::asio::steady_timer>(boost::asio::get_associated_executor(yield));
+	while(true) {
+		int rlen = 1;
+		int wlen = 1;
+		SRTSOCKET rready;
+		SRTSOCKET wready;
+		logMsg.Format("[%s] queue: %d", m_orkRefId, m_pushQueue.size());
+		LOG4CXX_DEBUG(s_log, logMsg);
+		if (srt_epoll_wait(epollid, &rready, &rlen, &wready, &wlen, 0, 0, 0, 0, 0) != -1) {
+			SRT_SOCKSTATUS state = srt_getsockstate(m_srtsock);
+			if (state == SRTS_CONNECTED) {
+				logMsg.Format("[%s] connected", m_orkRefId);
+				LOG4CXX_DEBUG(s_log, logMsg);
+				m_span->AddEvent("connected", {
+					{"address", u.hostport()},
+				});
+				return true;
 			}
-			timer->expires_after(std::chrono::milliseconds(30));
-			timer->async_wait(yield);
+			if (state == SRTS_BROKEN) {
+				logMsg.Format("[%s] error srt_epoll_wait: state broken, socket %d", m_orkRefId, m_srtsock);
+				LOG4CXX_INFO(s_log, logMsg);
+				return false;
+			}
 		}
-	});
+		logMsg.Format("[%s] waiting for connection", m_orkRefId);
+		LOG4CXX_DEBUG(s_log, logMsg);
+		timer->expires_after(std::chrono::milliseconds(30));
+		timer->async_wait(yield);
+	}
+	LOG4CXX_DEBUG(s_log, "return");
 	return true;
 }
 
@@ -511,136 +509,133 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 	return true;
 }
 
-void SRTFilter::Close() {
-	boost::asio::io_context& ctx(pool.GetContext());
-	boost::asio::spawn(ctx, [&](auto yield) {
-		CStdString logMsg;
-		auto timer = std::make_shared<boost::asio::steady_timer>(ctx);
-		logMsg.Format("[%s] Close", m_orkRefId);
-		LOG4CXX_DEBUG(s_log, logMsg);
-		while(true) {
-			if (m_connecting.load()) {
-				m_stats.CloseWaitSecond++;
-				timer->expires_after(std::chrono::seconds(1));
-				timer->async_wait(yield);
-				logMsg.Format("[%s] waiting for connecting", m_orkRefId);
-				LOG4CXX_DEBUG(s_log, logMsg);
-			} else {
-				break;
-			}
+void SRTFilter::Close(boost::asio::yield_context yield) {
+	CStdString logMsg;
+	auto timer = std::make_shared<boost::asio::steady_timer>(boost::asio::get_associated_executor(yield));
+	logMsg.Format("[%s] Close", m_orkRefId);
+	LOG4CXX_DEBUG(s_log, logMsg);
+	while(true) {
+		if (m_connecting.load()) {
+			m_stats.CloseWaitSecond++;
+			timer->expires_after(std::chrono::seconds(1));
+			timer->async_wait(yield);
+			logMsg.Format("[%s] waiting for connecting", m_orkRefId);
+			LOG4CXX_DEBUG(s_log, logMsg);
+		} else {
+			break;
 		}
-		if (!m_connected.load()) {
-			return;
+	}
+	if (!m_connected.load()) {
+		return;
+	}
+	while(true) {
+		// timer->expires_after(std::chrono::milliseconds(20));
+		// timer->async_wait(yield);
+		if (DequeueAndProcess()) {
+			logMsg.Format("[%s] waiting for dequeue", m_orkRefId);
+			LOG4CXX_DEBUG(s_log, logMsg);
+		} else {
+			break;
 		}
-		while(true) {
-			if (DequeueAndProcess()) {
-				timer->expires_after(std::chrono::milliseconds(20));
-				timer->async_wait(yield);
-				logMsg.Format("[%s] waiting for dequeue", m_orkRefId);
-				LOG4CXX_DEBUG(s_log, logMsg);
-			} else {
-				break;
-			}
-		}
-		size_t lastBytes;
-		size_t lastlastBytes;
-		size_t lastlastlastBytes;
-		while(true) {
-			size_t bytes;
-			size_t blocks;
+	}
+	size_t lastBytes;
+	size_t lastlastBytes;
+	size_t lastlastlastBytes;
+	while(true) {
+		size_t bytes;
+		size_t blocks;
 
-			if (SRT_ERROR == srt_getsndbuffer(m_srtsock, &bytes, &blocks)) {
+		if (SRT_ERROR == srt_getsndbuffer(m_srtsock, &bytes, &blocks)) {
+			logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
+			LOG4CXX_INFO(s_log, logMsg);
+			m_span->AddEvent("getsndbuffer-failed");
+			break;
+		}
+
+		bool streakSameBytes = (bytes == lastBytes && bytes == lastlastBytes && bytes == lastlastlastBytes);
+		if (bytes == 0 || streakSameBytes) {
+			SRT_TRACEBSTATS perf;
+			if (SRT_SUCCESS == srt_bstats(m_srtsock, &perf, true)) {
+				logMsg.Format(
+					"[%s] msTimeStamp: %lld, pktSentTotal: %lld, pktSentUniqueTotal: %lld, pktSndLossTotal: %d, pktRetransTotal: %d, pktRecvACKTotal: %d, pktRecvNAKTotal: %d, usSndDurationTotal: %lld, pktSndDropTotal: %d, pktSndFilterExtraTotal: %d, byteSentTotal: %llu, byteSentUniqueTotal: %llu, byteRetransTotal: %llu, byteSndDropTotal: %llu",
+					m_orkRefId,
+					perf.msTimeStamp,
+					perf.pktSentTotal,
+					perf.pktSentUniqueTotal,
+					perf.pktSndLossTotal,
+					perf.pktRetransTotal,
+					perf.pktRecvACKTotal,
+					perf.pktRecvNAKTotal,
+					perf.usSndDurationTotal,
+					perf.pktSndDropTotal,
+					perf.pktSndFilterExtraTotal,
+					perf.byteSentTotal,
+					perf.byteSentUniqueTotal,
+					perf.byteRetransTotal,
+					perf.byteSndDropTotal);
+				LOG4CXX_INFO(s_log, logMsg);
+				m_span->AddEvent("stats", {
+					{"msTimeStamp", perf.msTimeStamp},
+					{"pktSentTotal", perf.pktSentTotal},
+					{"pktSentUniqueTotal", perf.pktSentUniqueTotal},
+					{"pktSndLossTotal", perf.pktSndLossTotal},
+					{"pktRetransTotal", perf.pktRetransTotal},
+					{"pktRecvACKTotal", perf.pktRecvACKTotal},
+					{"pktRecvNAKTotal", perf.pktRecvNAKTotal},
+					{"usSndDurationTotal", perf.usSndDurationTotal},
+					{"pktSndDropTotal", perf.pktSndDropTotal},
+					{"pktSndFilterExtraTotal", perf.pktSndFilterExtraTotal},
+					{"byteSentTotal", perf.byteSentTotal},
+					{"byteSentUniqueTotal", perf.byteSentUniqueTotal},
+					{"byteRetransTotal", perf.byteRetransTotal},
+					{"byteSndDropTotal", perf.byteSndDropTotal},
+				});
+			} else {
+				logMsg.Format("[%s] error srt_bstats", m_orkRefId);
+				LOG4CXX_ERROR(s_log, logMsg);
+				m_span->AddEvent("stats-failed");
+			}
+			timer->expires_after(std::chrono::seconds(1));
+			timer->async_wait(yield);
+			if (SRT_ERROR == srt_close(m_srtsock)) {
 				logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
 				LOG4CXX_INFO(s_log, logMsg);
-				m_span->AddEvent("getsndbuffer-failed");
-				break;
+				m_span->AddEvent("close-failed");
 			}
-
-			bool streakSameBytes = (bytes == lastBytes && bytes == lastlastBytes && bytes == lastlastlastBytes);
-			if (bytes == 0 || streakSameBytes) {
-				SRT_TRACEBSTATS perf;
-				if (SRT_SUCCESS == srt_bstats(m_srtsock, &perf, true)) {
-					timer->expires_after(std::chrono::seconds(1));
-					timer->async_wait(yield);
-					logMsg.Format(
-						"[%s] msTimeStamp: %lld, pktSentTotal: %lld, pktSentUniqueTotal: %lld, pktSndLossTotal: %d, pktRetransTotal: %d, pktRecvACKTotal: %d, pktRecvNAKTotal: %d, usSndDurationTotal: %lld, pktSndDropTotal: %d, pktSndFilterExtraTotal: %d, byteSentTotal: %llu, byteSentUniqueTotal: %llu, byteRetransTotal: %llu, byteSndDropTotal: %llu",
-						m_orkRefId,
-						perf.msTimeStamp,
-						perf.pktSentTotal,
-						perf.pktSentUniqueTotal,
-						perf.pktSndLossTotal,
-						perf.pktRetransTotal,
-						perf.pktRecvACKTotal,
-						perf.pktRecvNAKTotal,
-						perf.usSndDurationTotal,
-						perf.pktSndDropTotal,
-						perf.pktSndFilterExtraTotal,
-						perf.byteSentTotal,
-						perf.byteSentUniqueTotal,
-						perf.byteRetransTotal,
-						perf.byteSndDropTotal);
-					LOG4CXX_INFO(s_log, logMsg);
-					m_span->AddEvent("stats", {
-						{"msTimeStamp", perf.msTimeStamp},
-						{"pktSentTotal", perf.pktSentTotal},
-						{"pktSentUniqueTotal", perf.pktSentUniqueTotal},
-						{"pktSndLossTotal", perf.pktSndLossTotal},
-						{"pktRetransTotal", perf.pktRetransTotal},
-						{"pktRecvACKTotal", perf.pktRecvACKTotal},
-						{"pktRecvNAKTotal", perf.pktRecvNAKTotal},
-						{"usSndDurationTotal", perf.usSndDurationTotal},
-						{"pktSndDropTotal", perf.pktSndDropTotal},
-						{"pktSndFilterExtraTotal", perf.pktSndFilterExtraTotal},
-						{"byteSentTotal", perf.byteSentTotal},
-						{"byteSentUniqueTotal", perf.byteSentUniqueTotal},
-						{"byteRetransTotal", perf.byteRetransTotal},
-						{"byteSndDropTotal", perf.byteSndDropTotal},
-					});
-				} else {
-					logMsg.Format("[%s] error srt_bstats", m_orkRefId);
-					LOG4CXX_ERROR(s_log, logMsg);
-					m_span->AddEvent("stats-failed");
-				}
-				if (SRT_ERROR == srt_close(m_srtsock)) {
-					logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
-					LOG4CXX_INFO(s_log, logMsg);
-					m_span->AddEvent("close-failed");
-				}
-				break;
-			} else {
-				logMsg.Format("[%s] Remaining bytes: %zu", m_orkRefId, bytes);
-				LOG4CXX_DEBUG(s_log, logMsg);
-				m_stats.CloseWaitSecond++;
-				timer->expires_after(std::chrono::seconds(1));
-				timer->async_wait(yield);
-				LOG4CXX_DEBUG(s_log, "waiting for close");
-			}
-			lastlastlastBytes = lastlastBytes;
-			lastlastBytes = lastBytes;
-			lastBytes = bytes;
+			break;
+		} else {
+			logMsg.Format("[%s] Remaining bytes: %zu", m_orkRefId, bytes);
+			LOG4CXX_DEBUG(s_log, logMsg);
+			m_stats.CloseWaitSecond++;
+			timer->expires_after(std::chrono::seconds(1));
+			timer->async_wait(yield);
+			LOG4CXX_DEBUG(s_log, "waiting for close");
 		}
+		lastlastlastBytes = lastlastBytes;
+		lastlastBytes = lastBytes;
+		lastBytes = bytes;
+	}
 
 
-		m_span->AddEvent("close", {
-			{"CloseWaitSecond", m_stats.CloseWaitSecond},
-			{"ReceivedRightPacket", m_stats.ReceivedRightPacket},
-			{"ReceivedLeftPacket", m_stats.ReceivedLeftPacket},
-			{"ReceivedPacket", m_stats.ReceivedPacket},
-			{"OverflowPacket", m_stats.OverflowPacket},
-			{"SentPacket", m_stats.SentPacket},
-		});
-		logMsg.Format("[%s] CloseWaitSecond: %d, ReceivedRightPacket: %d, ReceivedLeftPacket: %d, ReceivedPacket: %d, OverflowPacket: %d, SentPacket: %d",
-			m_orkRefId,
-			m_stats.CloseWaitSecond,
-			m_stats.ReceivedRightPacket,
-			m_stats.ReceivedLeftPacket,
-			m_stats.ReceivedPacket,
-			m_stats.OverflowPacket,
-			m_stats.SentPacket);
-		LOG4CXX_INFO(s_log, logMsg);
-
-		m_span->End();
+	m_span->AddEvent("close", {
+		{"CloseWaitSecond", m_stats.CloseWaitSecond},
+		{"ReceivedRightPacket", m_stats.ReceivedRightPacket},
+		{"ReceivedLeftPacket", m_stats.ReceivedLeftPacket},
+		{"ReceivedPacket", m_stats.ReceivedPacket},
+		{"OverflowPacket", m_stats.OverflowPacket},
+		{"SentPacket", m_stats.SentPacket},
 	});
+	logMsg.Format("[%s] CloseWaitSecond: %d, ReceivedRightPacket: %d, ReceivedLeftPacket: %d, ReceivedPacket: %d, OverflowPacket: %d, SentPacket: %d",
+		m_orkRefId,
+		m_stats.CloseWaitSecond,
+		m_stats.ReceivedRightPacket,
+		m_stats.ReceivedLeftPacket,
+		m_stats.ReceivedPacket,
+		m_stats.OverflowPacket,
+		m_stats.SentPacket);
+	LOG4CXX_INFO(s_log, logMsg);
+
+	m_span->End();
 }
 // =================================================================
 
