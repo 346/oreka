@@ -25,7 +25,6 @@ SRTFilter::SRTFilter(SimpleThreadPool &pool) :
 	pool(pool),
 	m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
 	m_bufferQueueB(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
-	m_pushQueue(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
 	m_connected(false),
 	m_connecting(false),
 	m_closeReceived(false),
@@ -98,8 +97,8 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 	char *newChunk;
 	char *leftChunk;
 	char *rightChunk;
-	RingBuffer<AudioChunkRef> *currentBufferQueue;
-	RingBuffer<AudioChunkRef> *standbyBufferQueue;
+	AudioBuffer *currentBufferQueue;
+	AudioBuffer *standbyBufferQueue;
 	if (m_useBufferA) {
 		currentBufferQueue = &m_bufferQueueA;
 		standbyBufferQueue = &m_bufferQueueB;
@@ -107,27 +106,28 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 		currentBufferQueue = &m_bufferQueueB;
 		standbyBufferQueue = &m_bufferQueueA;
 	}
-	boost::optional<AudioChunkRef> queuedChunk;
+	AudioChunkRef queuedChunk;
 	if (inputDetails.m_channel == m_currentBufferChannel) {
-		if (queuedChunk = currentBufferQueue->put(inputAudioChunk)){
+		if (currentBufferQueue->full()) {
+			queuedChunk = currentBufferQueue->front();
+			currentBufferQueue->pop_front();
 			newChunk = m_silentChannelBuffer;
-			bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
+			bufferedChunk = (char *)queuedChunk->m_pBuffer;
 		} else {
+			currentBufferQueue->push_back(inputAudioChunk);
 			return;
 		}
 	} else {
-		if (queuedChunk = currentBufferQueue->get()){
-			newChunk = newBuffer;
-			bufferedChunk = (char *)(*queuedChunk)->m_pBuffer;
-		} else {
+		if (currentBufferQueue->empty()) {
 			m_useBufferA = !m_useBufferA;
 			m_currentBufferChannel = inputDetails.m_channel;
-
-			if (queuedChunk = standbyBufferQueue->put(inputAudioChunk)) {
-				LOG4CXX_ERROR(s_log, "Standby buffer has chunk");
-				m_status = false;
-			}
+			standbyBufferQueue->push_back(inputAudioChunk);
 			return;
+		} else {
+			queuedChunk = currentBufferQueue->front();
+			currentBufferQueue->pop_front();
+			newChunk = newBuffer;
+			bufferedChunk = (char *)queuedChunk->m_pBuffer;
 		}
 	}
 	if (m_currentBufferChannel == 1) {
@@ -138,8 +138,6 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 		rightChunk = bufferedChunk;
 	}
 	AddQueue(inputDetails, leftChunk, rightChunk);
-
-
 }
 
 void SRTFilter::AddQueue(AudioChunkDetails& channelDetails, char * firstChannelBuffer, char * secondChannelBuffer) {
@@ -159,15 +157,15 @@ void SRTFilter::AddQueue(AudioChunkDetails& channelDetails, char * firstChannelB
 		outputBuffer[i * 2] = firstChannelBuffer[i];
 		outputBuffer[i * 2 + 1] = secondChannelBuffer[i];
 	}
-	auto chunk = SrtChunk{outputBuffer, size};
-	if (auto overflow = m_pushQueue.put(chunk)) {
-		m_stats.OverflowPacket++;
-		free(overflow->buffer);
+	auto chunk = std::make_shared<SrtChunk>(SrtChunk{outputBuffer, size});
+	if (!m_pushQueue.push(chunk)) {
+		m_stats.FailedQueue++;
 	}
 }
 
 bool SRTFilter::DequeueAndProcess() {
-	if (auto chunk = m_pushQueue.get()) {
+	std::shared_ptr<SrtChunk> chunk;
+	if (m_pushQueue.pop(chunk)) {
 		PushToSRT(chunk->buffer, chunk->size);
 		free(chunk->buffer);
 		return true;
@@ -430,8 +428,6 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 		int wlen = 1;
 		SRTSOCKET rready;
 		SRTSOCKET wready;
-		logMsg.Format("[%s] queue: %d", m_orkRefId, m_pushQueue.size());
-		LOG4CXX_DEBUG(s_log, logMsg);
 		if (srt_epoll_wait(epollid, &rready, &rlen, &wready, &wlen, 0, 0, 0, 0, 0) != -1) {
 			SRT_SOCKSTATUS state = srt_getsockstate(m_srtsock);
 			if (state == SRTS_CONNECTED) {
@@ -633,15 +629,17 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 		{"ReceivedPacket", m_stats.ReceivedPacket},
 		{"OverflowPacket", m_stats.OverflowPacket},
 		{"SentPacket", m_stats.SentPacket},
+		{"FailedQueue", m_stats.FailedQueue},
 	});
-	logMsg.Format("[%s] CloseWaitSecond: %d, ReceivedRightPacket: %d, ReceivedLeftPacket: %d, ReceivedPacket: %d, OverflowPacket: %d, SentPacket: %d",
+	logMsg.Format("[%s] CloseWaitSecond: %d, ReceivedRightPacket: %d, ReceivedLeftPacket: %d, ReceivedPacket: %d, OverflowPacket: %d, SentPacket: %d, FailedQueue: %d",
 		m_orkRefId,
 		m_stats.CloseWaitSecond,
 		m_stats.ReceivedRightPacket,
 		m_stats.ReceivedLeftPacket,
 		m_stats.ReceivedPacket,
 		m_stats.OverflowPacket,
-		m_stats.SentPacket);
+		m_stats.SentPacket,
+		m_stats.FailedQueue);
 	LOG4CXX_INFO(s_log, logMsg);
 
 	m_span->End();

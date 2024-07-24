@@ -22,7 +22,7 @@
 #include <string>
 #include <cstring>
 #include "ConfigManager.h"
-#include "../LiveStream/RingBuffer.h"
+// #include "../LiveStream/RingBuffer.h"
 #include "srt.h"
 #include "uriparser.hpp"
 
@@ -35,6 +35,8 @@
 #include <boost/lexical_cast.hpp>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/spawn.hpp>
+#include <boost/circular_buffer.hpp>
+#include <boost/lockfree/spsc_queue.hpp>
 
 #include "opentelemetry/exporters/ostream/span_exporter_factory.h"
 #include "opentelemetry/nostd/detail/decay.h"
@@ -78,7 +80,8 @@ struct SrtFilterStats {
 	int ReceivedPacket;
 	int OverflowPacket;
 	int SentPacket;
-	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0), OverflowPacket(0), SentPacket(0) {}
+	int FailedQueue;
+	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0), OverflowPacket(0), SentPacket(0), FailedQueue(0) {}
 };
 
 struct SrtChunk {
@@ -122,9 +125,11 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		std::mt19937 m_rng;
 		std::vector<int>m_shuffledHostIndexes;
 		u_int32_t m_timestamp = 0;
-		RingBuffer<AudioChunkRef> m_bufferQueueA;
-		RingBuffer<AudioChunkRef> m_bufferQueueB;
-		RingBuffer<SrtChunk> m_pushQueue;
+		typedef boost::circular_buffer<AudioChunkRef> AudioBuffer;
+		typedef boost::lockfree::spsc_queue<std::shared_ptr<SrtChunk>, boost::lockfree::capacity<1024>> SrtBuffer;
+		AudioBuffer m_bufferQueueA;
+		AudioBuffer m_bufferQueueB;
+		SrtBuffer m_pushQueue;
 		bool m_useBufferA = true;
 		char * m_silentChannelBuffer = NULL;
 		std::string m_srtUrl;
