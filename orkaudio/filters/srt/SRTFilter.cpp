@@ -139,9 +139,7 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 	}
 	AddQueue(inputDetails, leftChunk, rightChunk);
 
-	if (m_connected.load() && !m_closeReceived.load()) {
-		DequeueAndProcess();
-	}
+
 }
 
 void SRTFilter::AddQueue(AudioChunkDetails& channelDetails, char * firstChannelBuffer, char * secondChannelBuffer) {
@@ -268,6 +266,17 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 			auto scope = Scope();
 			Connect(yield);
 			m_connecting.store(false);
+
+			auto timer = std::make_shared<boost::asio::steady_timer>(ctx);
+			auto delay = 15;
+			while(true) {
+				if (m_closeReceived.load()) {
+					return;
+				}
+				DequeueAndProcess();
+				timer->expires_after(std::chrono::milliseconds(delay));
+				timer->async_wait(yield);
+			}
 		});
 	}
 
@@ -529,11 +538,11 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 		return;
 	}
 	while(true) {
-		// timer->expires_after(std::chrono::milliseconds(20));
-		// timer->async_wait(yield);
 		if (DequeueAndProcess()) {
 			logMsg.Format("[%s] waiting for dequeue", m_orkRefId);
 			LOG4CXX_DEBUG(s_log, logMsg);
+			timer->expires_after(std::chrono::milliseconds(20));
+			timer->async_wait(yield);
 		} else {
 			break;
 		}
