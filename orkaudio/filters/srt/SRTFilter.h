@@ -73,6 +73,9 @@ namespace nostd     = opentelemetry::nostd;
 
 using namespace boost::uuids;
 
+const int SRT_CHUNK_MS = 20;
+const int SRT_CHUNK_COUNT = 4;
+
 struct SrtFilterStats {
 	int CloseWaitSecond;
 	int ReceivedRightPacket;
@@ -126,7 +129,7 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		std::vector<int>m_shuffledHostIndexes;
 		u_int32_t m_timestamp = 0;
 		typedef boost::circular_buffer<AudioChunkRef> AudioBuffer;
-		typedef boost::lockfree::spsc_queue<std::shared_ptr<SrtChunk>, boost::lockfree::capacity<1024>> SrtBuffer;
+		typedef boost::lockfree::spsc_queue<SrtChunk, boost::lockfree::capacity<1024>> SrtBuffer;
 		AudioBuffer m_bufferQueueA;
 		AudioBuffer m_bufferQueueB;
 		SrtBuffer m_pushQueue;
@@ -135,7 +138,7 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		std::string m_srtUrl;
 		void PushToSRT(char* buffer, int size);
 		void AddQueue(AudioChunkDetails& channelDetails, char* firstChannelBuffer, char* secondChannelBuffer);
-		bool DequeueAndProcess();
+		bool DequeueAndProcess(bool sendFraction);
 		void Connect(boost::asio::yield_context yield);
 		void Close(boost::asio::yield_context yield);
 		bool SetupSRTSocket(UriParser u);
@@ -145,8 +148,10 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		std::atomic<bool> m_connected;
 		std::atomic<bool> m_connecting;
 		std::atomic<bool> m_closeReceived;
+		std::list<SrtChunk> m_chunkList;
 		SrtFilterStats m_stats;
 		SimpleThreadPool &pool;
+
 };
 
 class SrtTextMapCarrier : public opentelemetry::context::propagation::TextMapCarrier

@@ -93,6 +93,11 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 		}
 		std::fill_n(m_silentChannelBuffer, inputDetails.m_numBytes, 255);
 	}
+	if (inputDetails.m_channel == 1) {
+		m_stats.ReceivedRightPacket++;
+	} else {
+		m_stats.ReceivedLeftPacket++;
+	}
 	char *bufferedChunk;
 	char *newChunk;
 	char *leftChunk;
@@ -111,6 +116,7 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 		if (currentBufferQueue->full()) {
 			queuedChunk = currentBufferQueue->front();
 			currentBufferQueue->pop_front();
+			currentBufferQueue->push_back(inputAudioChunk);
 			newChunk = m_silentChannelBuffer;
 			bufferedChunk = (char *)queuedChunk->m_pBuffer;
 		} else {
@@ -157,17 +163,42 @@ void SRTFilter::AddQueue(AudioChunkDetails& channelDetails, char * firstChannelB
 		outputBuffer[i * 2] = firstChannelBuffer[i];
 		outputBuffer[i * 2 + 1] = secondChannelBuffer[i];
 	}
-	auto chunk = std::make_shared<SrtChunk>(SrtChunk{outputBuffer, size});
+	auto chunk = SrtChunk{outputBuffer, size};
 	if (!m_pushQueue.push(chunk)) {
 		m_stats.FailedQueue++;
 	}
 }
 
-bool SRTFilter::DequeueAndProcess() {
-	std::shared_ptr<SrtChunk> chunk;
-	if (m_pushQueue.pop(chunk)) {
-		PushToSRT(chunk->buffer, chunk->size);
-		free(chunk->buffer);
+bool SRTFilter::DequeueAndProcess(bool sendFraction) {
+	while(true) {
+		SrtChunk chunk;
+		if (m_pushQueue.pop(chunk)) {
+			m_chunkList.push_back(chunk);
+			if (m_chunkList.size() == SRT_CHUNK_COUNT) {
+				break;
+			}
+		} else {
+			break;
+		}
+	}
+	if (m_chunkList.size() == 0) {
+		return false;
+	}
+	if (m_chunkList.size() == SRT_CHUNK_COUNT || sendFraction) {
+		size_t allChunkSize = 0;
+    for (const auto& chunk : m_chunkList) {
+        allChunkSize += chunk.size;
+    }
+		char* allChunk = (char*)malloc(allChunkSize);
+		char* currentPos = allChunk;
+		for (const auto& chunk : m_chunkList) {
+			memcpy(currentPos, chunk.buffer, chunk.size);
+			currentPos += chunk.size;
+			free(chunk.buffer);
+		}
+		m_chunkList.clear();
+		PushToSRT(allChunk, allChunkSize);
+		free(allChunk);
 		return true;
 	} else {
 		return false;
@@ -265,24 +296,21 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 			m_connecting.store(false);
 
 			auto timer = std::make_shared<boost::asio::steady_timer>(ctx);
-			auto delay = 15;
+			auto delay = SRT_CHUNK_MS;
 			while(true) {
 				if (m_closeReceived.load()) {
-					return;
+					break;
 				}
-				DequeueAndProcess();
+				DequeueAndProcess(false);
 				timer->expires_after(std::chrono::milliseconds(delay));
 				timer->async_wait(yield);
 			}
+			Close(yield);
 		});
 	}
 
 	if (event->m_type == CaptureEvent::EventTypeEnum::EtStop) {
 		m_closeReceived.store(true);
-		boost::asio::io_context& ctx(pool.GetContext());
-		boost::asio::spawn(ctx, [&](auto yield) {
-			Close(yield);
-		});
 	}
 }
 
@@ -546,10 +574,11 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 		return;
 	}
 	while(true) {
-		if (DequeueAndProcess()) {
+		if (DequeueAndProcess(true)) {
 			logMsg.Format("[%s] waiting for dequeue", m_orkRefId);
 			LOG4CXX_DEBUG(s_log, logMsg);
-			timer->expires_after(std::chrono::milliseconds(20));
+
+			timer->expires_after(std::chrono::milliseconds(SRT_CHUNK_MS));
 			timer->async_wait(yield);
 		} else {
 			break;
@@ -684,3 +713,4 @@ extern "C"
 	}
 
 }
+
