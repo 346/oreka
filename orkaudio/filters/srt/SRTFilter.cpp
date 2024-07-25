@@ -296,13 +296,12 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 			m_connecting.store(false);
 
 			auto timer = std::make_shared<boost::asio::steady_timer>(ctx);
-			auto delay = SRT_CHUNK_MS;
 			while(true) {
 				if (m_closeReceived.load()) {
 					break;
 				}
 				DequeueAndProcess(false);
-				timer->expires_after(std::chrono::milliseconds(delay));
+				timer->expires_after(std::chrono::milliseconds(SRT_CHUNK_MS));
 				timer->async_wait(yield);
 			}
 			Close(yield);

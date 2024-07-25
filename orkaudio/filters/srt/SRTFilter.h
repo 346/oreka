@@ -73,7 +73,7 @@ namespace nostd     = opentelemetry::nostd;
 
 using namespace boost::uuids;
 
-const int SRT_CHUNK_MS = 20;
+const int SRT_CHUNK_MS = 80;
 const int SRT_CHUNK_COUNT = 4;
 
 struct SrtFilterStats {
