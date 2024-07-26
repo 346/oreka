@@ -75,6 +75,7 @@ using namespace boost::uuids;
 
 const int SRT_CHUNK_MS = 20;
 const int SRT_CHUNK_COUNT = 4;
+extern const char* SRT_DUMMY;
 
 struct SrtFilterStats {
 	int CloseWaitSecond;

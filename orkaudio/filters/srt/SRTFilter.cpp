@@ -20,6 +20,8 @@
 
 static auto s_log = log4cxx::Logger::getLogger("plugin.srt");
 
+const char* SRT_DUMMY = "0";
+
 static std::regex placeholderPattern("\\{([a-zA-Z0-9_]+)\\}");
 SRTFilter::SRTFilter(SimpleThreadPool &pool) :
 	pool(pool),
@@ -206,7 +208,7 @@ bool SRTFilter::DequeueAndProcess(bool sendFraction) {
 }
 
 void SRTFilter::PushToSRT(char* outputBuffer, int size) {
-	auto ret = srt_sendmsg(m_srtsock, outputBuffer, size, -1, false);
+	auto ret = srt_sendmsg2(m_srtsock, outputBuffer, size, NULL);
 	if (ret == SRT_ERROR || ret != size) {
 		CStdString logMsg;
 		logMsg.Format("SRTFilter::Send [%s] error:%s", m_orkRefId, srt_getlasterror_str());
@@ -643,6 +645,7 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 				LOG4CXX_ERROR(s_log, logMsg);
 				m_span->AddEvent("stats-failed");
 			}
+
 			timer->expires_after(std::chrono::seconds(1));
 			timer->async_wait(yield);
 			if (SRT_ERROR == srt_close(m_srtsock)) {
@@ -657,6 +660,10 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 			logMsg.Format("[%s] Remaining bytes: %zu", m_orkRefId, bytes);
 			LOG4CXX_DEBUG(s_log, logMsg);
 			m_stats.CloseWaitSecond++;
+			if (srt_sendmsg2(m_srtsock, SRT_DUMMY, 1, NULL) == SRT_ERROR) {
+				logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
+				LOG4CXX_ERROR(s_log, logMsg);
+			}
 			timer->expires_after(std::chrono::seconds(1));
 			timer->async_wait(yield);
 			LOG4CXX_DEBUG(s_log, "waiting for close");
