@@ -427,25 +427,6 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 	addr_in.sin_port = htons(std::stoi(u.port()));
 	inet_pton4(u.host().c_str(), &addr_in.sin_addr);
 
-	int epollid = srt_epoll_create();
-	if (epollid == -1) {
-		auto scope = Scope();
-		logMsg.Format("[%s] error srt_epoll_create: %s", m_orkRefId, srt_getlasterror_str());
-		LOG4CXX_INFO(s_log, logMsg);
-		return false;
-	}
-	{
-		auto scope = Scope();
-		logMsg.Format("[%s] connecting to %s, EID:%d", m_orkRefId, u.hostport(), epollid);
-		LOG4CXX_INFO(s_log, logMsg);
-	}
-	int modes = SRT_EPOLL_OUT | SRT_EPOLL_ERR;
-	if (SRT_ERROR == srt_epoll_add_usock(epollid, m_srtsock, &modes)) {
-		auto scope = Scope();
-		logMsg.Format("[%s] error srt_epoll_add_usock: %s", m_orkRefId, srt_getlasterror_str());
-		LOG4CXX_INFO(s_log, logMsg);
-		return false;
-	}
 	sockaddr* addr = (struct sockaddr*)&addr_in;
 
 	if (SRT_ERROR == srt_connect(m_srtsock, addr, sizeof(addr_in))) {
@@ -464,64 +445,35 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 	int count = 0;
 	while(true) {
 		count++;
-		int rlen = 1;
-		int wlen = 1;
-		SRTSOCKET rready;
-		SRTSOCKET wready;
-		if (srt_epoll_wait(epollid, &rready, &rlen, &wready, &wlen, 0, 0, 0, 0, 0) != -1) {
-			SRT_SOCKSTATUS state = srt_getsockstate(m_srtsock);
-			if (state == SRTS_CONNECTED) {
-				auto scope = Scope();
-				logMsg.Format("[%s] connected", m_orkRefId);
-				LOG4CXX_INFO(s_log, logMsg);
-				m_span->AddEvent("connected", {
-					{"address", u.hostport()},
-				});
-				return true;
-			}
-			if (state == SRTS_BROKEN) {
-				auto scope = Scope();
-				logMsg.Format("[%s] error srt_epoll_wait: state broken, socket %d", m_orkRefId, m_srtsock);
-				LOG4CXX_INFO(s_log, logMsg);
-				if (srt_epoll_remove_usock(epollid, m_srtsock) == -1) {
-					logMsg.Format("[%s] error srt_epoll_remove_usock: %s", m_orkRefId, srt_getlasterror_str());
-					LOG4CXX_INFO(s_log, logMsg);
-				}
-				if (srt_close(m_srtsock) == -1) {
-					logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
-					LOG4CXX_INFO(s_log, logMsg);
-				}
-				return false;
-			}
-
-		}
-		{
-			SRT_SOCKSTATUS state = srt_getsockstate(m_srtsock);
+		timer->expires_after(std::chrono::milliseconds(30));
+		timer->async_wait(yield);
+		SRT_SOCKSTATUS state = srt_getsockstate(m_srtsock);
+		if (state == SRTS_CONNECTED) {
 			auto scope = Scope();
-			logMsg.Format("[%s] EID:%d sockstate:%d rready:%d rlen:%d wready:%d wlen:%d", m_orkRefId, epollid, state, rready, rlen, wready, wlen);
+			logMsg.Format("[%s] connected", m_orkRefId);
 			LOG4CXX_INFO(s_log, logMsg);
+			m_span->AddEvent("connected", {
+				{"address", u.hostport()},
+			});
+			return true;
 		}
-		if (count > 20) {
+		if (state == SRTS_BROKEN) {
 			auto scope = Scope();
-			logMsg.Format("[%s] error connection timeout", m_orkRefId);
+			logMsg.Format("[%s] error socket broken, socket %d", m_orkRefId, m_srtsock);
 			LOG4CXX_INFO(s_log, logMsg);
-			if (srt_epoll_remove_usock(epollid, m_srtsock) == -1) {
-				logMsg.Format("[%s] error srt_epoll_remove_usock: %s", m_orkRefId, srt_getlasterror_str());
-				LOG4CXX_INFO(s_log, logMsg);
-			}
 			if (srt_close(m_srtsock) == -1) {
 				logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
 				LOG4CXX_INFO(s_log, logMsg);
 			}
 			return false;
-
 		}
-		logMsg.Format("[%s] waiting for connection", m_orkRefId);
-		LOG4CXX_DEBUG(s_log, logMsg);
-		timer->expires_after(std::chrono::milliseconds(30));
-		timer->async_wait(yield);
+		if (count > 100) {
+			auto scope = Scope();
+			logMsg.Format("[%s] connection loop error. state: %d ", m_orkRefId, state);
+			LOG4CXX_INFO(s_log, logMsg);
+			return false;
+		}
 	}
-	LOG4CXX_DEBUG(s_log, "return");
 	return true;
 }
 
@@ -672,7 +624,9 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 				LOG4CXX_ERROR(s_log, logMsg);
 				m_span->AddEvent("stats-failed");
 			}
-
+			// receiver latency
+			timer->expires_after(std::chrono::seconds(1));
+			timer->async_wait(yield);
 			if (SRT_ERROR == srt_close(m_srtsock)) {
 				auto scope = Scope();
 				logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
