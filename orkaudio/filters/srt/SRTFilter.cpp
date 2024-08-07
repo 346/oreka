@@ -493,26 +493,28 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 				}
 				return false;
 			}
-			{
-				auto scope = Scope();
-				logMsg.Format("[%s] EID:%d sockstate:%d rready:%d rlen:%d wready:%d wlen:%d", m_orkRefId, epollid, state, rready, rlen, wready, wlen);
-				LOG4CXX_INFO(s_log, logMsg);
-			}
-			if (count > 20) {
-				auto scope = Scope();
-				logMsg.Format("[%s] error connection timeout", m_orkRefId);
-				LOG4CXX_INFO(s_log, logMsg);
-				if (srt_epoll_remove_usock(epollid, m_srtsock) == -1) {
-					logMsg.Format("[%s] error srt_epoll_remove_usock: %s", m_orkRefId, srt_getlasterror_str());
-					LOG4CXX_INFO(s_log, logMsg);
-				}
-				if (srt_close(m_srtsock) == -1) {
-					logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
-					LOG4CXX_INFO(s_log, logMsg);
-				}
-				return false;
 
+		}
+		{
+			SRT_SOCKSTATUS state = srt_getsockstate(m_srtsock);
+			auto scope = Scope();
+			logMsg.Format("[%s] EID:%d sockstate:%d rready:%d rlen:%d wready:%d wlen:%d", m_orkRefId, epollid, state, rready, rlen, wready, wlen);
+			LOG4CXX_INFO(s_log, logMsg);
+		}
+		if (count > 20) {
+			auto scope = Scope();
+			logMsg.Format("[%s] error connection timeout", m_orkRefId);
+			LOG4CXX_INFO(s_log, logMsg);
+			if (srt_epoll_remove_usock(epollid, m_srtsock) == -1) {
+				logMsg.Format("[%s] error srt_epoll_remove_usock: %s", m_orkRefId, srt_getlasterror_str());
+				LOG4CXX_INFO(s_log, logMsg);
 			}
+			if (srt_close(m_srtsock) == -1) {
+				logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
+				LOG4CXX_INFO(s_log, logMsg);
+			}
+			return false;
+
 		}
 		logMsg.Format("[%s] waiting for connection", m_orkRefId);
 		LOG4CXX_DEBUG(s_log, logMsg);
