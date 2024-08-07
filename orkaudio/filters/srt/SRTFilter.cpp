@@ -81,7 +81,7 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 		m_currentBufferChannel = inputDetails.m_channel;
 		m_isFirstPacket = false;
 		CStdString logMsg;
-		logMsg.Format("SRTFilter:: HeadChannel: %d", m_currentBufferChannel);
+		logMsg.Format("[%s] HeadChannel: %d", m_orkRefId, m_currentBufferChannel);
 		LOG4CXX_DEBUG(s_log, logMsg);
 	}
 
@@ -89,7 +89,7 @@ void SRTFilter::AudioChunkIn(AudioChunkRef & inputAudioChunk) {
 		m_silentChannelBuffer = (char *)malloc(inputDetails.m_numBytes);
 		if (!m_silentChannelBuffer) {
 			CStdString logMsg;
-			logMsg.Format("SRTFilter::AudioChunkIn [%s] SilentChannelBuffer Memory allocation failed.", m_orkRefId);
+			logMsg.Format("[%s] SilentChannelBuffer Memory allocation failed.", m_orkRefId);
 			LOG4CXX_ERROR(s_log, logMsg);
 			return;
 		}
@@ -153,7 +153,7 @@ void SRTFilter::AddQueue(AudioChunkDetails& channelDetails, char * firstChannelB
 	char *outputBuffer = (char *)malloc(size);
 	if (!outputBuffer) {
 		CStdString logMsg;
-		logMsg.Format("SRTFilter::Send [%s] Memory allocation failed.", m_orkRefId);
+		logMsg.Format("[%s] Memory allocation failed.", m_orkRefId);
 		LOG4CXX_ERROR(s_log, logMsg);
 		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 		m_status = false;
@@ -211,7 +211,7 @@ void SRTFilter::PushToSRT(char* outputBuffer, int size) {
 	auto ret = srt_sendmsg2(m_srtsock, outputBuffer, size, NULL);
 	if (ret == SRT_ERROR || ret != size) {
 		CStdString logMsg;
-		logMsg.Format("SRTFilter::Send [%s] error:%s", m_orkRefId, srt_getlasterror_str());
+		logMsg.Format("[%s] error srt_sendmsg2:%s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_ERROR(s_log, logMsg);
 		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 		m_status = false;
@@ -250,7 +250,7 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 		m_orkRefId = event->m_value;
 	}
 
-	logMsg.Format("SRTFilter:: CaptureEventIn[%s] Key: %s, Value: %s", m_orkRefId, key, event->m_value);
+	logMsg.Format("[%s] CaptureEventIn %s:%s", m_orkRefId, key, event->m_value);
 	LOG4CXX_DEBUG(s_log, logMsg);
 
 	if (event->m_type == CaptureEvent::EventTypeEnum::EtCallId) {
@@ -278,13 +278,13 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 
 	if (event->m_type == CaptureEvent::EventTypeEnum::EtCallId) {
 		if (m_callId.empty()) {
-			logMsg.Format("SRTFilter:: Start[%s] Failed for Empty Call ID", m_orkRefId);
+			logMsg.Format("[%s] Failed for Empty Call ID", m_orkRefId);
 			LOG4CXX_ERROR(s_log, logMsg);
 			m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 			return;
 		}
 		if (m_orkUid.empty()) {
-			logMsg.Format("SRTFilter:: Start[%s] Failed for Empty Ork UID", m_orkUid);
+			logMsg.Format("[%s] Failed for Empty Ork UID", m_orkUid);
 			LOG4CXX_ERROR(s_log, logMsg);
 			m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 			return;
@@ -389,15 +389,16 @@ void SRTFilter::Connect(boost::asio::yield_context yield) {
 		LOG4CXX_DEBUG(s_log, carrierHeader.first);
 		LOG4CXX_DEBUG(s_log, carrierHeader.second);
 	}
-	m_span->AddEvent("connect");
+	logMsg.Format("[%s] start connecting", m_orkRefId);
+	LOG4CXX_INFO(s_log, logMsg);
+	m_span->AddEvent("connecting");
 	for (const auto i : m_shuffledHostIndexes) {
 		if (m_closeReceived.load()) {
 			break;
 		}
 		auto address = SRTCONFIG.m_srtAddresses[i];
-		logMsg.Format("SRTFilter:: Start[%s] LiveStreamingId %s", m_orkRefId, liveStreamingId);
 		std::string url = GetURL(address, liveStreamingId, carrier.headers_);
-		logMsg.Format("SRTFilter:: Start[%s] Streaming URL %s", m_orkRefId, url.c_str());
+		logMsg.Format("[%s] url: %s", m_orkRefId, url.c_str());
 		LOG4CXX_DEBUG(s_log, logMsg);
 		UriParser u(url);
 
@@ -430,14 +431,14 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 	int epollid = srt_epoll_create();
 	if (epollid == -1) {
 		auto scope = Scope();
-		logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
+		logMsg.Format("[%s] error srt_epoll_create: %s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_INFO(s_log, logMsg);
 		return false;
 	}
 	int modes = SRT_EPOLL_OUT | SRT_EPOLL_ERR;
 	if (SRT_ERROR == srt_epoll_add_usock(epollid, m_srtsock, &modes)) {
 		auto scope = Scope();
-		logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
+		logMsg.Format("[%s] error srt_epoll_add_usock: %s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_INFO(s_log, logMsg);
 		return false;
 	}
@@ -446,7 +447,7 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 	if (SRT_ERROR == srt_connect(m_srtsock, addr, sizeof(addr_in))) {
 		auto scope = Scope();
 		int rej = srt_getrejectreason(m_srtsock);
-		logMsg.Format("[%s] %s:%s", m_orkRefId, srt_getlasterror_str(), srt_rejectreason_str(rej));
+		logMsg.Format("[%s] error srt_connect: %s:%s", m_orkRefId, srt_getlasterror_str(), srt_rejectreason_str(rej));
 		LOG4CXX_INFO(s_log, logMsg);
 		m_span->AddEvent("connect-failed", {
 			{"address", u.hostport()},
@@ -466,7 +467,7 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 			if (state == SRTS_CONNECTED) {
 				auto scope = Scope();
 				logMsg.Format("[%s] connected", m_orkRefId);
-				LOG4CXX_DEBUG(s_log, logMsg);
+				LOG4CXX_INFO(s_log, logMsg);
 				m_span->AddEvent("connected", {
 					{"address", u.hostport()},
 				});
@@ -476,6 +477,14 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 				auto scope = Scope();
 				logMsg.Format("[%s] error srt_epoll_wait: state broken, socket %d", m_orkRefId, m_srtsock);
 				LOG4CXX_INFO(s_log, logMsg);
+				if (srt_epoll_remove_usock(epollid, m_srtsock) != -1) {
+					logMsg.Format("[%s] error srt_epoll_remove_usock: %s", m_orkRefId, srt_getlasterror_str());
+					LOG4CXX_INFO(s_log, logMsg);
+				}
+				if (srt_close(m_srtsock) == -1) {
+					logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
+					LOG4CXX_INFO(s_log, logMsg);
+				}
 				return false;
 			}
 		}
@@ -494,14 +503,14 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 	const bool no = false;
 	if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_SNDSYN, &no, sizeof(no))) {
 		auto scope = Scope();
-		logMsg.Format("[%s] sndsyn error %s", m_orkRefId, srt_getlasterror_str());
+		logMsg.Format("[%s] error srt_setsockflag SRTO_SNDSYN: %s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_ERROR(s_log, logMsg);
 		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 		return false;
 	}
 	if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_RCVSYN, &no, sizeof(no))) {
 		auto scope = Scope();
-		logMsg.Format("[%s] rcvsyn error %s", m_orkRefId, srt_getlasterror_str());
+		logMsg.Format("[%s] error srt_setsockflag SRTO_RCVSYN: %s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_ERROR(s_log, logMsg);
 		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 		return false;
@@ -509,7 +518,7 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 	const int32_t timeout = 2000;
 	if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_CONNTIMEO, &timeout, sizeof(timeout))) {
 		auto scope = Scope();
-		logMsg.Format("[%s] conn timeout error %s", m_orkRefId, srt_getlasterror_str());
+		logMsg.Format("[%s] error srt_setsockflag SRTO_CONNTIMEO: %s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_ERROR(s_log, logMsg);
 		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 		return false;
@@ -525,7 +534,7 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 		if (key == "streamid") {
 			if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_STREAMID, value.c_str(), value.length())) {
 				auto scope = Scope();
-				logMsg.Format("[%s] streamid error %s", m_orkRefId, srt_getlasterror_str());
+				logMsg.Format("[%s] error srt_setsockflag SRTO_STREAMID: %s", m_orkRefId, srt_getlasterror_str());
 				LOG4CXX_ERROR(s_log, logMsg);
 				m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 				return false;
@@ -535,7 +544,7 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 		if (key == "passphrase") {
 			if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_PASSPHRASE, value.c_str(), value.length())) {
 				auto scope = Scope();
-				logMsg.Format("[%s] passphrase error %s", m_orkRefId, srt_getlasterror_str());
+				logMsg.Format("[%s] error srt_setsockflag SRTO_PASSPHRASE: %s", m_orkRefId, srt_getlasterror_str());
 				LOG4CXX_ERROR(s_log, logMsg);
 				m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 				return false;
@@ -545,7 +554,7 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 			const int32_t snddropdelay = std::stoi(value);
 			if (SRT_ERROR == srt_setsockflag(m_srtsock, SRTO_SNDDROPDELAY, &snddropdelay, sizeof(snddropdelay))) {
 				auto scope = Scope();
-				logMsg.Format("[%s] snddropdelay error %s", m_orkRefId, srt_getlasterror_str());
+				logMsg.Format("[%s] error srt_setsockflag SRTO_SNDDROPDELAY: %s", m_orkRefId, srt_getlasterror_str());
 				LOG4CXX_ERROR(s_log, logMsg);
 				m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
 				return false;
@@ -558,7 +567,7 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 void SRTFilter::Close(boost::asio::yield_context yield) {
 	CStdString logMsg;
 	auto timer = std::make_shared<boost::asio::steady_timer>(boost::asio::get_associated_executor(yield));
-	logMsg.Format("[%s] Close", m_orkRefId);
+	logMsg.Format("[%s] closing", m_orkRefId);
 	LOG4CXX_DEBUG(s_log, logMsg);
 	while(true) {
 		if (m_connecting.load()) {
@@ -594,7 +603,7 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 
 		if (SRT_ERROR == srt_getsndbuffer(m_srtsock, &bytes, &blocks)) {
 			auto scope = Scope();
-			logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
+			logMsg.Format("[%s] error srt_getsndbuffer: %s", m_orkRefId, srt_getlasterror_str());
 			LOG4CXX_INFO(s_log, logMsg);
 			m_span->AddEvent("getsndbuffer-failed");
 			break;
@@ -650,23 +659,24 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 			timer->async_wait(yield);
 			if (SRT_ERROR == srt_close(m_srtsock)) {
 				auto scope = Scope();
-				logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
+				logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
 				LOG4CXX_INFO(s_log, logMsg);
 				m_span->AddEvent("close-failed");
 			}
 			break;
 		} else {
 			auto scope = Scope();
-			logMsg.Format("[%s] Remaining bytes: %zu", m_orkRefId, bytes);
+			logMsg.Format("[%s] remaining bytes: %zu", m_orkRefId, bytes);
 			LOG4CXX_DEBUG(s_log, logMsg);
 			m_stats.CloseWaitSecond++;
 			if (srt_sendmsg2(m_srtsock, SRT_DUMMY, 1, NULL) == SRT_ERROR) {
-				logMsg.Format("[%s] %s", m_orkRefId, srt_getlasterror_str());
+				logMsg.Format("[%s] error closing srt_sendmsg2: %s", m_orkRefId, srt_getlasterror_str());
 				LOG4CXX_ERROR(s_log, logMsg);
 			}
 			timer->expires_after(std::chrono::seconds(1));
 			timer->async_wait(yield);
-			LOG4CXX_DEBUG(s_log, "waiting for close");
+			logMsg.Format("[%s] waiting for close", m_orkRefId);
+			LOG4CXX_DEBUG(s_log, logMsg);
 		}
 		lastlastlastBytes = lastlastBytes;
 		lastlastBytes = lastBytes;
@@ -698,13 +708,21 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 	m_span->End();
 }
 // =================================================================
-
+static void SrtLogHandler(void *opaque, int level, const char *file, int line, const char *area, const char *message)
+{
+	CStdString logMsg;
+	logMsg.Format("LIBSRT %s:%d(%s) # %s", file, line, area, message);
+	LOG4CXX_INFO(s_log, logMsg);
+}
 extern "C"
 {
 	SimpleThreadPool _pool;
 	DLL_EXPORT void __CDECL__ OrkInitialize()
 	{
 		LOG4CXX_INFO(s_log, "SRTFilter starting");
+
+		srt_setloglevel(srt_logging::LogLevel::debug);
+		srt_setloghandler(nullptr, SrtLogHandler);
 
 		//SRTConfig
 		ConfigManager::Instance()->AddConfigureFunction(SRTConfig::Configure);
