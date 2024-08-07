@@ -27,8 +27,6 @@ SRTFilter::SRTFilter(SimpleThreadPool &pool) :
 	pool(pool),
 	m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
 	m_bufferQueueB(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
-	m_connected(false),
-	m_connecting(false),
 	m_closeReceived(false),
 	m_rng(std::random_device()()) {
 	std::vector<int> indices(SRTCONFIG.m_srtAddresses.size());
@@ -290,12 +288,18 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 			return;
 		}
 
-		m_connecting.store(true);
-
 		boost::asio::io_context& ctx(pool.GetContext());
 		boost::asio::spawn(ctx, [&](auto yield) {
-			Connect(yield);
-			m_connecting.store(false);
+			if (!Connect(yield)) {
+				auto scope = Scope();
+				CStdString logMsg;
+				logMsg.Format("[%s] failed to connect", m_orkRefId);
+				LOG4CXX_ERROR(s_log, logMsg);
+				m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
+				m_span->AddEvent("srtfilter-failed");
+				m_span->End();
+				return;
+			}
 
 			auto timer = std::make_shared<boost::asio::steady_timer>(ctx);
 			while(true) {
@@ -373,7 +377,7 @@ std::string SRTFilter::GetURL(boost::asio::ip::address address, std::string live
 	return result;
 }
 
-void SRTFilter::Connect(boost::asio::yield_context yield) {
+bool SRTFilter::Connect(boost::asio::yield_context yield) {
 	CStdString logMsg;
 
 	context::Context empty;
@@ -389,8 +393,11 @@ void SRTFilter::Connect(boost::asio::yield_context yield) {
 		LOG4CXX_DEBUG(s_log, carrierHeader.first);
 		LOG4CXX_DEBUG(s_log, carrierHeader.second);
 	}
-	logMsg.Format("[%s] start connecting", m_orkRefId);
-	LOG4CXX_INFO(s_log, logMsg);
+	{
+		auto scope = Scope();
+		logMsg.Format("[%s] start connecting", m_orkRefId);
+		LOG4CXX_INFO(s_log, logMsg);
+	}
 	m_span->AddEvent("connecting");
 	for (const auto i : m_shuffledHostIndexes) {
 		if (m_closeReceived.load()) {
@@ -408,17 +415,9 @@ void SRTFilter::Connect(boost::asio::yield_context yield) {
 		if (!TryConnect(yield, u)) {
 			continue;
 		}
-		m_connected.store(true);
-		break;
+		return true;
 	}
-	if (!m_connected.load()) {
-		auto scope = Scope();
-		CStdString logMsg;
-		logMsg.Format("[%s] error srt_connect", m_orkRefId);
-		LOG4CXX_ERROR(s_log, logMsg);
-		m_span->SetStatus(trace_api::StatusCode::kError, logMsg);
-		m_span->AddEvent("srtfilter-failed");
-	}
+	return false;
 }
 bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 	CStdString logMsg;
@@ -434,6 +433,11 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 		logMsg.Format("[%s] error srt_epoll_create: %s", m_orkRefId, srt_getlasterror_str());
 		LOG4CXX_INFO(s_log, logMsg);
 		return false;
+	}
+	{
+		auto scope = Scope();
+		logMsg.Format("[%s] connecting to %s, EID:%d", m_orkRefId, u.hostport(), epollid);
+		LOG4CXX_INFO(s_log, logMsg);
 	}
 	int modes = SRT_EPOLL_OUT | SRT_EPOLL_ERR;
 	if (SRT_ERROR == srt_epoll_add_usock(epollid, m_srtsock, &modes)) {
@@ -457,7 +461,9 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 		return false;
 	}
 	auto timer = std::make_shared<boost::asio::steady_timer>(boost::asio::get_associated_executor(yield));
+	int count = 0;
 	while(true) {
+		count++;
 		int rlen = 1;
 		int wlen = 1;
 		SRTSOCKET rready;
@@ -477,7 +483,7 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 				auto scope = Scope();
 				logMsg.Format("[%s] error srt_epoll_wait: state broken, socket %d", m_orkRefId, m_srtsock);
 				LOG4CXX_INFO(s_log, logMsg);
-				if (srt_epoll_remove_usock(epollid, m_srtsock) != -1) {
+				if (srt_epoll_remove_usock(epollid, m_srtsock) == -1) {
 					logMsg.Format("[%s] error srt_epoll_remove_usock: %s", m_orkRefId, srt_getlasterror_str());
 					LOG4CXX_INFO(s_log, logMsg);
 				}
@@ -486,6 +492,26 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 					LOG4CXX_INFO(s_log, logMsg);
 				}
 				return false;
+			}
+			{
+				auto scope = Scope();
+				logMsg.Format("[%s] EID:%d sockstate:%d rready:%d rlen:%d wready:%d wlen:%d", m_orkRefId, epollid, state, rready, rlen, wready, wlen);
+				LOG4CXX_INFO(s_log, logMsg);
+			}
+			if (count > 20) {
+				auto scope = Scope();
+				logMsg.Format("[%s] error connection timeout", m_orkRefId);
+				LOG4CXX_INFO(s_log, logMsg);
+				if (srt_epoll_remove_usock(epollid, m_srtsock) == -1) {
+					logMsg.Format("[%s] error srt_epoll_remove_usock: %s", m_orkRefId, srt_getlasterror_str());
+					LOG4CXX_INFO(s_log, logMsg);
+				}
+				if (srt_close(m_srtsock) == -1) {
+					logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
+					LOG4CXX_INFO(s_log, logMsg);
+				}
+				return false;
+
 			}
 		}
 		logMsg.Format("[%s] waiting for connection", m_orkRefId);
@@ -567,22 +593,12 @@ bool SRTFilter::SetupSRTSocket(UriParser u) {
 void SRTFilter::Close(boost::asio::yield_context yield) {
 	CStdString logMsg;
 	auto timer = std::make_shared<boost::asio::steady_timer>(boost::asio::get_associated_executor(yield));
-	logMsg.Format("[%s] closing", m_orkRefId);
-	LOG4CXX_DEBUG(s_log, logMsg);
-	while(true) {
-		if (m_connecting.load()) {
-			m_stats.CloseWaitSecond++;
-			timer->expires_after(std::chrono::seconds(1));
-			timer->async_wait(yield);
-			logMsg.Format("[%s] waiting for connecting", m_orkRefId);
-			LOG4CXX_DEBUG(s_log, logMsg);
-		} else {
-			break;
-		}
+	{
+		auto scope = Scope();
+		logMsg.Format("[%s] closing", m_orkRefId);
+		LOG4CXX_INFO(s_log, logMsg);
 	}
-	if (!m_connected.load()) {
-		return;
-	}
+
 	while(true) {
 		if (DequeueAndProcess(true)) {
 			logMsg.Format("[%s] waiting for dequeue", m_orkRefId);
@@ -655,8 +671,6 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 				m_span->AddEvent("stats-failed");
 			}
 
-			timer->expires_after(std::chrono::seconds(1));
-			timer->async_wait(yield);
 			if (SRT_ERROR == srt_close(m_srtsock)) {
 				auto scope = Scope();
 				logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
@@ -683,7 +697,6 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 		lastBytes = bytes;
 	}
 
-
 	auto scope = Scope();
 	m_span->AddEvent("close", {
 		{"CloseWaitSecond", m_stats.CloseWaitSecond},
@@ -704,6 +717,7 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 		m_stats.SentPacket,
 		m_stats.FailedQueue);
 	LOG4CXX_INFO(s_log, logMsg);
+	m_span->SetStatus(trace_api::StatusCode::kOk, "closed");
 
 	m_span->End();
 }
