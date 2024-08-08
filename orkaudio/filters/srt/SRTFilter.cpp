@@ -443,6 +443,7 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 	}
 	auto timer = std::make_shared<boost::asio::steady_timer>(boost::asio::get_associated_executor(yield));
 	int count = 0;
+	bool brokenLast = false;
 	while(true) {
 		count++;
 		timer->expires_after(std::chrono::milliseconds(30));
@@ -459,13 +460,21 @@ bool SRTFilter::TryConnect(boost::asio::yield_context yield, UriParser u) {
 		}
 		if (state == SRTS_BROKEN) {
 			auto scope = Scope();
-			logMsg.Format("[%s] error socket broken, socket %d", m_orkRefId, m_srtsock);
-			LOG4CXX_INFO(s_log, logMsg);
-			if (srt_close(m_srtsock) == -1) {
-				logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
+			if (brokenLast) {
+				logMsg.Format("[%s] error socket broken, socket: %d", m_orkRefId, m_srtsock);
 				LOG4CXX_INFO(s_log, logMsg);
+				if (srt_close(m_srtsock) == -1) {
+					logMsg.Format("[%s] error srt_close: %s", m_orkRefId, srt_getlasterror_str());
+					LOG4CXX_INFO(s_log, logMsg);
+				}
+				return false;
+			} else {
+				logMsg.Format("[%s] broken once, socket: %d", m_orkRefId, m_srtsock);
+				LOG4CXX_INFO(s_log, logMsg);
+				brokenLast = true;
 			}
-			return false;
+		} else {
+			brokenLast = false;
 		}
 		if (count > 100) {
 			auto scope = Scope();
