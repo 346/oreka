@@ -38,12 +38,14 @@ std::string getEnv(std::string envName, std::string defaultString) {
 	std::string envstring(envchr);
 	return envstring;
 }
+int flushInterval = 5000000;
 
 std::unique_ptr<opentelemetry::sdk::logs::LogRecordExporter> createFileLogExporter() {
 	otlp::OtlpFileLogRecordExporterOptions log_exp_options;
 	otlp::OtlpFileClientFileSystemOptions log_file_options;
-	log_file_options.file_pattern = "/var/log/orkaudio/logs-%N.jsonl";
+	log_file_options.file_pattern = "/var/log/orkaudio/logs-%Y%m%d-%N.jsonl";
 	log_file_options.alias_pattern = "/var/log/orkaudio/logs-latest.jsonl";
+	log_file_options.flush_interval = std::chrono::microseconds(flushInterval);
 	log_exp_options.backend_options = log_file_options;
 	auto exporter     = otlp::OtlpFileLogRecordExporterFactory::Create(log_exp_options);
 	return exporter;
@@ -52,8 +54,9 @@ std::unique_ptr<opentelemetry::sdk::logs::LogRecordExporter> createFileLogExport
 std::unique_ptr<trace_sdk::SpanExporter> createFileSpanExporter() {
 	otlp::OtlpFileExporterOptions trace_exp_options;
 	otlp::OtlpFileClientFileSystemOptions trace_file_options;
-	trace_file_options.file_pattern = "/var/log/orkaudio/trace-%N.jsonl";
+	trace_file_options.file_pattern = "/var/log/orkaudio/trace-%Y%m%d-%N.jsonl";
 	trace_file_options.alias_pattern = "/var/log/orkaudio/trace-latest.jsonl";
+	trace_file_options.flush_interval = std::chrono::microseconds(flushInterval);
 	trace_exp_options.backend_options = trace_file_options;
 	auto exporter     = otlp::OtlpFileExporterFactory::Create(trace_exp_options);
 	return exporter;
@@ -61,8 +64,9 @@ std::unique_ptr<trace_sdk::SpanExporter> createFileSpanExporter() {
 std::unique_ptr<metrics_sdk::PushMetricExporter> createFileMetricExporter() {
 	otlp::OtlpFileMetricExporterOptions metric_exp_options;
 	otlp::OtlpFileClientFileSystemOptions metric_file_options;
-	metric_file_options.file_pattern = "/var/log/orkaudio/metrics-%N.jsonl";
+	metric_file_options.file_pattern = "/var/log/orkaudio/metrics-%Y%m%d-%N.jsonl";
 	metric_file_options.alias_pattern = "/var/log/orkaudio/metrics-latest.jsonl";
+	metric_file_options.flush_interval = std::chrono::microseconds(flushInterval);
 	metric_exp_options.backend_options = metric_file_options;
 	auto exporter     = otlp::OtlpFileMetricExporterFactory::Create(metric_exp_options);
 	return exporter;

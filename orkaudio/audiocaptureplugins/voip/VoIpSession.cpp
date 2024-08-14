@@ -86,7 +86,7 @@ VoIpSession::VoIpSession(CStdString& trackingId) : OrkSession(&DLLCONFIG),
     opentelemetry::context::Context root;
     root = root.SetValue(trace_api::kIsRootSpanKey, true);
 	options.parent = root;
-	m_span = tracer->StartSpan("VoIpSession", {}, options);
+	m_span = tracer->StartSpan("VoIpSession", {{"trackingid", std::string(m_trackingId)}}, options);
 }
 
 std::shared_ptr<trace_api::Scope> VoIpSession::Scope() {
