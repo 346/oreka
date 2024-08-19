@@ -22,7 +22,7 @@ static auto s_log = log4cxx::Logger::getLogger("plugin.srt");
 
 const char* SRT_DUMMY = "0";
 
-static std::regex placeholderPattern("\\{([a-zA-Z0-9_]+)\\}");
+static std::regex placeholderPattern("\\{([a-zA-Z0-9_\\-]+)\\}");
 SRTFilter::SRTFilter(SimpleThreadPool &pool) :
 	pool(pool),
 	m_bufferQueueA(SRTCONFIG.m_queueFlushThresholdMillis/G711_PACKET_INTERVAL),
@@ -248,7 +248,7 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 		m_orkRefId = event->m_value;
 	}
 
-	logMsg.Format("[%s] CaptureEventIn %s:%s", m_orkRefId, key, event->m_value);
+	logMsg.Format("[%s] CaptureEventIn %s:%s:%s", m_orkRefId, key, event->m_value, event->m_key);
 	LOG4CXX_DEBUG(s_log, logMsg);
 
 	if (event->m_type == CaptureEvent::EventTypeEnum::EtCallId) {
@@ -273,8 +273,11 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 	if (event->m_type == CaptureEvent::EventTypeEnum::EtRemoteIp) {
 		m_remoteIp = event->m_value;
 	}
+	if (event->m_type == CaptureEvent::EventTypeEnum::EtKeyValue) {
+		m_extractedHeaders["{" + event->m_key + "}"] = event->m_value;
+	}
 
-	if (event->m_type == CaptureEvent::EventTypeEnum::EtCallId) {
+	if (event->m_type == CaptureEvent::EventTypeEnum::EtEndMetadata) {
 		if (m_callId.empty()) {
 			logMsg.Format("[%s] Failed for Empty Call ID", m_orkRefId);
 			LOG4CXX_ERROR(s_log, logMsg);
@@ -343,6 +346,7 @@ std::string SRTFilter::GetURL(boost::asio::ip::address address, std::string live
 		{"{localip}", m_localIp},
 		{"{direction}", m_direction},
 	};
+
 	{
 		auto header = headers.find("traceparent");
 		std::string value;
@@ -363,15 +367,19 @@ std::string SRTFilter::GetURL(boost::asio::ip::address address, std::string live
 		}
 		values.insert({"{tracestate}", value});
 	}
+
+	values.insert(m_extractedHeaders.begin(), m_extractedHeaders.end());
 	std::regex_token_iterator<std::string::iterator> rbegin(result.begin(), result.end(), placeholderPattern);
 	std::regex_token_iterator<std::string::iterator> rend;
 	std::for_each(rbegin, rend, [&result, &values](const std::string& target) {
+		std::string replaceValue = "";
 		auto kv = values.find(target);
 		if (kv != values.end()) {
-			std::size_t pos = result.find(kv->first);
-			if (pos != std::string::npos) {
-				result.replace(pos, target.length(), kv->second);
-			}
+			replaceValue = kv->second;
+		}
+		std::size_t pos = result.find(target);
+		if (pos != std::string::npos) {
+			result.replace(pos, target.length(), replaceValue);
 		}
 	});
 	return result;
@@ -668,17 +676,15 @@ void SRTFilter::Close(boost::asio::yield_context yield) {
 		{"ReceivedRightPacket", m_stats.ReceivedRightPacket},
 		{"ReceivedLeftPacket", m_stats.ReceivedLeftPacket},
 		{"ReceivedPacket", m_stats.ReceivedPacket},
-		{"OverflowPacket", m_stats.OverflowPacket},
 		{"SentPacket", m_stats.SentPacket},
 		{"FailedQueue", m_stats.FailedQueue},
 	});
-	logMsg.Format("[%s] CloseWaitSecond: %d, ReceivedRightPacket: %d, ReceivedLeftPacket: %d, ReceivedPacket: %d, OverflowPacket: %d, SentPacket: %d, FailedQueue: %d",
+	logMsg.Format("[%s] CloseWaitSecond: %d, ReceivedRightPacket: %d, ReceivedLeftPacket: %d, ReceivedPacket: %d, SentPacket: %d, FailedQueue: %d",
 		m_orkRefId,
 		m_stats.CloseWaitSecond,
 		m_stats.ReceivedRightPacket,
 		m_stats.ReceivedLeftPacket,
 		m_stats.ReceivedPacket,
-		m_stats.OverflowPacket,
 		m_stats.SentPacket,
 		m_stats.FailedQueue);
 	LOG4CXX_INFO(s_log, logMsg);

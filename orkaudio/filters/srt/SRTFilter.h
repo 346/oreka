@@ -82,10 +82,9 @@ struct SrtFilterStats {
 	int ReceivedRightPacket;
 	int ReceivedLeftPacket;
 	int ReceivedPacket;
-	int OverflowPacket;
 	int SentPacket;
 	int FailedQueue;
-	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0), OverflowPacket(0), SentPacket(0), FailedQueue(0) {}
+	SrtFilterStats() : CloseWaitSecond(0), ReceivedRightPacket(0), ReceivedLeftPacket(0), ReceivedPacket(0), SentPacket(0), FailedQueue(0) {}
 };
 
 struct SrtChunk {
@@ -122,6 +121,7 @@ class DLL_IMPORT_EXPORT_ORKBASE SRTFilter : public Filter {
 		CStdString m_remoteParty;
 		CStdString m_remoteIp;
 		CStdString m_direction;
+		std::map<std::string, std::string> m_extractedHeaders;
 		SRTSOCKET m_srtsock;
 		bool m_status = true;
 		bool m_isFirstPacket = true;
