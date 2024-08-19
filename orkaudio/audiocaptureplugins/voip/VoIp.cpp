@@ -1230,14 +1230,18 @@ void VoIp::OpenPcapDirectory(CStdString& path)
 		{
 			CStdString dirEntryFilename;
 			dirEntryFilename.Format("%s",finfo.name);
-			CStdString pcapExtension = ".pcap";
+			CStdString pcapExtension = ".pcapng";
 			int extensionPos = dirEntryFilename.Find(pcapExtension);
+			if(extensionPos == -1)
+			{
+				pcapExtension = ".pcap";
+				extensionPos = dirEntryFilename.Find(pcapExtension);
+			}
 			if(extensionPos == -1)
 			{
 				pcapExtension = ".cap";
 				extensionPos = dirEntryFilename.Find(pcapExtension);
 			}
-
 			if ( extensionPos != -1 && (dirEntryFilename.size() - extensionPos) == pcapExtension.size() )
 			{
 				CStdString pcapFilePath = path + "/" + finfo.name;
