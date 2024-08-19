@@ -47,11 +47,11 @@ inline bool IsAFieldSeparator(char c)
 // Returns:   the position of stringToFind inside searchedString
 //			  npos  if not existent
 // Parameter: const OrkStringView & searchedString   eg "ABCDEFG"
-// Parameter: const OrkStringView & stringToFind     eg   "CDE"  will return result will be 2 
+// Parameter: const OrkStringView & stringToFind     eg   "CDE"  will return result will be 2
 //************************************
 size_t  OrkStringViewFind(const OrkStringView& searchedString, const OrkStringView& stringToFind)
 {
-	// replacement for string_view::find because 
+	// replacement for string_view::find because
 	//  boost 1.53 on linux has a typo in the implementation (using a single = in place of ==)
 
 	size_t locationInField = OrkStringView::npos;
@@ -77,7 +77,7 @@ size_t  OrkStringViewFind(const OrkStringView& searchedString, const OrkStringVi
 // Method:    ExtractKeyValueFromField
 // Returns:   OrkStringView  containing a range of bytes
 //            This method searches for the substring between [*ptrFirstKeyChar  ... *ptrLastKeyChar]
-//            in the payload that goes from [*pHeaderFirstChar .... *pHeaderFirstChar + maxLength] 
+//            in the payload that goes from [*pHeaderFirstChar .... *pHeaderFirstChar + maxLength]
 //            if the payload is: "INVITE sip:SIPREC-SRS@10.250.62.211:5060 SIP/2.0\r\nFrom:AAABBCCDD;ontact=12325654654\n..."
 //            pHeaderFirstChar will point to "AAABBCCDD;ontact=12325654654\n...  "
 //            and [*ptrFirstKeyChar  ... *ptrLastKeyChar]  will point to [contact]
@@ -103,7 +103,7 @@ OrkStringView ExtractKeyValueFromField(const char* pHeaderFirstChar, size_t maxL
 	const char* pResultBegin = pHeaderFirstChar;
 	const char* pResultEnd = pHeaderFirstChar;
 
-	// Our last char will be either a carriage return or the last byte of the payload. 
+	// Our last char will be either a carriage return or the last byte of the payload.
 	while (*pLastChar != '\r' && *pLastChar != '\n' && pLastChar < pLastPayloadByte) {
 		++pLastChar;
 	}
@@ -121,7 +121,7 @@ OrkStringView ExtractKeyValueFromField(const char* pHeaderFirstChar, size_t maxL
 			++pResultBegin;
 		}
 		pResultEnd = pResultBegin;
-		// Locate last meaningful char 
+		// Locate last meaningful char
 		while (!IsAFieldSeparator(*pResultEnd) && (*pResultEnd != '\n') && (*pResultEnd != '\r') && (*pResultEnd != 0) && (pResultEnd < pLastChar)) {
 			++pResultEnd;
 		}
@@ -133,7 +133,7 @@ OrkStringView ExtractKeyValueFromField(const char* pHeaderFirstChar, size_t maxL
 
 //************************************
 // Method:    retrieve_field_position_in_payload
-// Returns:   bool  
+// Returns:   bool
 //            if ptrFirstChar is not null, it's returned as is.  Otherwise, it's updated (for future reuse) with the location of the fieldName in the payload
 // Parameter: const char *   payload         Buffer to search
 // Parameter:     size_t     payLoadLength   Size of the buffer
@@ -158,8 +158,8 @@ bool retrieve_field_position_in_payload(const char* payload, size_t payLoadLengt
 
 //************************************
 // Method:    ExtractKeyValuesData
-// 
-// Parameter: std::map<CStdString , CStdString> & keyValueMapToFill  : A reference to a map to fill 
+//
+// Parameter: std::map<CStdString , CStdString> & keyValueMapToFill  : A reference to a map to fill
 // Parameter: std::array<const char *eMaxSearchFieldPosition > fieldPosition : An array of know locations in the payload for some standard sip records (from, to ...)
 // Parameter: char * payload   : first byte of the payload
 // Parameter: size_t payloadSize : length of the payload
@@ -170,9 +170,9 @@ void ExtractKeyValuesData(std::map<CStdString, CStdString>& keyValueMapToFill, s
 	// For each key in the m_sipExtractKeyValues list
 	//	  a. It first search in the precomputed array fieldPosition if the key matches it, the proceed to the extraction
 	//    b. If not found, we test if the key has a dot in its middle
-	//       b1. if yes,  find the sip line that starts with the left part of the key 
+	//       b1. if yes,  find the sip line that starts with the left part of the key
 	//	  c. if the key does not have a dot then a search across all the payload is done to locate the first string that matches the key
-	
+
 
 	//	  part a: It first search in the precomputed array fieldPosition if the key matches it, the proceed to the extraction
 
@@ -180,7 +180,7 @@ void ExtractKeyValuesData(std::map<CStdString, CStdString>& keyValueMapToFill, s
 	{
 		OrkStringView keyData;
 
-		// First check if the value to extract matches one of the standard precomputed field . 
+		// First check if the value to extract matches one of the standard precomputed field .
 
 		if (x.substr(0, 5) == "from.") {
 			if (!retrieve_field_position_in_payload(payload, payloadSize, fieldPosition[eSearch_FieldFrom_Position], "from:"))
@@ -245,9 +245,9 @@ void ExtractKeyValuesData(std::map<CStdString, CStdString>& keyValueMapToFill, s
 			//    b. If not found, we test if the key has a dot in its middle
 			if (dotPosition != OrkStringView::npos)
 			{
-				// Looking for aaaaa.bbbbb   
+				// Looking for aaaaa.bbbbb
 				// Find the line that starts with '\naaaaa:'
-				// then extract from this line the value for field bbbbb 
+				// then extract from this line the value for field bbbbb
 
 				bool foundTag = false;
 				bool reachedEndOfBuffer = false;
@@ -267,7 +267,7 @@ void ExtractKeyValuesData(std::map<CStdString, CStdString>& keyValueMapToFill, s
 						bool foundExtractionArea = false;
 						bool failedToFindAtStartOfLine = false;
 
-						// Make sure that the we have '\n{spaces - tabs}*sip_key:sip values", 
+						// Make sure that the we have '\n{spaces - tabs}*sip_key:sip values",
 						// still take care that the first sip line does not start with a '\n'
 						size_t tmpPosSubStr = posSubStr;
 						while ((bufferToSearch[tmpPosSubStr] == ' ' || bufferToSearch[tmpPosSubStr] == '\t') && (tmpPosSubStr > 0)) --tmpPosSubStr;
@@ -279,7 +279,7 @@ void ExtractKeyValuesData(std::map<CStdString, CStdString>& keyValueMapToFill, s
 							foundExtractionArea = (bufferToSearch[posSubStr + keyToLookUp.size()] == ':');
 						}
 
-						//       b1:  found the sip line that starts with the left part of the key 
+						//       b1:  found the sip line that starts with the left part of the key
 						if (foundExtractionArea)
 						{
 							// Try to find the key from this line.
@@ -297,7 +297,7 @@ void ExtractKeyValuesData(std::map<CStdString, CStdString>& keyValueMapToFill, s
 						}
 						else
 						{
-							// Skip to next line. 
+							// Skip to next line.
 							size_t nextLinePos = bufferToSearch.find('\n');
 							if (nextLinePos != OrkStringView::npos)
 							{
@@ -510,7 +510,7 @@ bool TrySipNotify(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct* ipHeader
 		return false;
 	}
 
-	if (boost::starts_with((char*)udpPayload, "NOTIFY")) 
+	if (boost::starts_with((char*)udpPayload, "NOTIFY"))
 	{
 		SipNotifyInfoRef info(new SipNotifyInfo());
 		info->m_senderIp = ipHeader->ip_src;
@@ -1289,7 +1289,17 @@ bool TrySipInvite(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct* ipHeader
 	else if((DLLCONFIG.m_sipTreat200OkAsInvite == true) && (memcmp(SIP_RESPONSE_200_OK, (void*)udpPayload, SIP_RESPONSE_200_OK_SIZE) == 0))
 	{
 		sipMethod = SIP_METHOD_200_OK;
-		LOG4CXX_DEBUG(s_sipExtractionLog, "TrySipInvite: packet matches 200 OK and SipTreat200OkAsInvite is enabled");
+		char* cSeqField = memFindAfter("CSeq:", (char*)udpPayload, sipEnd);
+
+		if(cSeqField) {
+			CStdString cSeq;
+			GrabLine(cSeqField, sipEnd, cSeq);
+			if (cSeq.Find("OPTIONS") != -1) {
+				drop = true;
+			} else {
+				LOG4CXX_DEBUG(s_sipExtractionLog, "TrySipInvite: packet matches 200 OK and SipTreat200OkAsInvite is enabled");
+			}
+		}
 	}
 	else if((DLLCONFIG.m_sipDetectSessionProgress == true) && (memcmp(SIP_RESPONSE_SESSION_PROGRESS, (void*)udpPayload, SIP_RESPONSE_SESSION_PROGRESS_SIZE) == 0))
 	{
@@ -1324,7 +1334,6 @@ bool TrySipInvite(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct* ipHeader
 		{
 			callIdField = memFindAfter("\ni:", (char*)udpPayload, sipEnd);
 		}
-
 		char* replacesField = memFindAfter("Replaces:", (char*)udpPayload, sipEnd);
 		if(!replacesField)
 		{
@@ -1660,9 +1669,9 @@ bool TrySipInvite(EthernetHeaderStruct* ethernetHeader, IpHeaderStruct* ipHeader
 				info->m_extractedFields.insert(std::make_pair(*it, field));
 			}
 		}
-        
+
 		ExtractKeyValuesData(info->m_extractedFields, sipFieldPointersArray, reinterpret_cast<char *> (udpPayload), sipLength);
-        
+
 		if(DLLCONFIG.m_rtpReportDtmf)
 		{
 			if(rtpmapAttribute)
