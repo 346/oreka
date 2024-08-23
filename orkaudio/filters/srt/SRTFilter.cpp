@@ -323,7 +323,6 @@ void SRTFilter::CaptureEventIn(CaptureEventRef & event) {
 }
 
 void SRTFilter::CaptureEventOut(CaptureEventRef & event) {
-	//LOG4CXX_INFO(s_log, "LiveStream CaptureEventOut " + toString(event.get()));
 }
 
 void SRTFilter::SetSessionInfo(CStdString & trackingId) {
@@ -369,20 +368,27 @@ std::string SRTFilter::GetURL(boost::asio::ip::address address, std::string live
 	}
 
 	values.insert(m_extractedHeaders.begin(), m_extractedHeaders.end());
-	std::regex_token_iterator<std::string::iterator> rbegin(result.begin(), result.end(), placeholderPattern);
-	std::regex_token_iterator<std::string::iterator> rend;
-	std::for_each(rbegin, rend, [&result, &values](const std::string& target) {
-		std::string replaceValue = "";
-		auto kv = values.find(target);
-		if (kv != values.end()) {
-			replaceValue = kv->second;
+	std::sregex_token_iterator rbegin(result.begin(), result.end(), placeholderPattern, {-1, 0});
+	std::sregex_token_iterator rend;
+
+	std::string updatedResult;
+	bool replace_next = false;
+
+	for (auto it = rbegin; it != rend; ++it) {
+		std::string token = *it;
+		if (replace_next) {
+			auto kv = values.find(token);
+			if (kv != values.end()) {
+				updatedResult += kv->second;
+			}
+		} else {
+			updatedResult += token;
 		}
-		std::size_t pos = result.find(target);
-		if (pos != std::string::npos) {
-			result.replace(pos, target.length(), replaceValue);
-		}
-	});
-	return result;
+		replace_next = !replace_next;
+	}
+
+	return updatedResult;
+
 }
 
 bool SRTFilter::Connect(boost::asio::yield_context yield) {
