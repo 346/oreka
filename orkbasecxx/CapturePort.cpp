@@ -291,6 +291,11 @@ void CapturePort::AddCaptureEvent(CaptureEventRef eventRef)
 
 	m_lastUpdated = time(NULL);
 
+	if (!CONFIG.m_audioOutputEnable)
+	{
+		return;
+	}
+
 	AudioTapeRef audioTapeRef = m_audioTapeRef;
 
 	// First of all, handle tape start
@@ -398,7 +403,7 @@ void CapturePort::AddCaptureEvent(CaptureEventRef eventRef)
 
 bool CapturePort::IsExpired(time_t now)
 {
-	if((now - m_lastUpdated) > (10*60))	// 10 minutes
+	if((now - m_lastUpdated) > (CONFIG.m_filterTimeoutSec))
 	{
 		if(m_audioTapeRef.get())
 		{

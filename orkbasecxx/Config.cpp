@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -87,7 +87,7 @@ Config::Config()
 	m_commandProcessingCommand = "";
 	m_directionForceOutgoingForRemotePartyPrefix = "";
 	m_directionForceOutgoingForRemotePartyMinLength = DIRECTION_FORCE_OUTGOING_FOR_REMOTE_PARTY_MIN_LENGTH_DEFAULT;
-	m_pauseRecordingOnRejectedStart = PAUSE_RECORDING_ON_REJECTED_START_DEFAULT; 
+	m_pauseRecordingOnRejectedStart = PAUSE_RECORDING_ON_REJECTED_START_DEFAULT;
 	m_directionLookBack = DIRECTION_LOOKBACK_DEFAULT;
 	m_remotePartyMaxDigits = 0;
 	m_dtmfReportingDetailed = DTMF_REPORTING_DETAILED;
@@ -107,6 +107,7 @@ Config::Config()
 	m_tlsClientCertCheckDisable = TLS_CLIENT_CERTCHECK_DISABLE_DEFAULT;
 	m_tlsClientCertCheckIgnoreExpiry = TLS_CLIENT_CERTCHECK_IGNORE_EXPIRY_DEFAULT;
 #endif
+	m_filterTimeoutSec = FILTER_TIMEOUT_SEC_DEFAULT;
 }
 
 void Config::Define(Serializer* s)
@@ -144,6 +145,8 @@ void Config::Define(Serializer* s)
 	s->IntValue(CLIENT_TIMEOUT_PARAM, m_clientTimeout);
 
 	s->StringValue(AUDIO_OUTPUT_PATH_PARAM, m_audioOutputPath);
+
+	s->IntValue(FILTER_TIMEOUT_SEC, m_filterTimeoutSec);
 	apr_status_t ret;
 	if(!m_audioOutputPath.size()) {
 		char *loggingPath = NULL;

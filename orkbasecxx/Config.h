@@ -1,6 +1,6 @@
 /*
  * Oreka -- A media capture and retrieval platform
- * 
+ *
  * Copyright (C) 2005, orecx LLC
  *
  * http://www.orecx.com
@@ -88,7 +88,7 @@
 #define BATCH_PROCESSING_ENHANCE_PRIORITY_DEFAULT false
 #define DELETE_FAILED_CAPTURE_FILE_PARAM "DeleteFailedCaptureFile"
 #define DELETE_FAILED_CAPTURE_FILE_DEFAULT false
-#define CAPTURE_PORT_FILTERS_PARAM "CapturePortFilters" 
+#define CAPTURE_PORT_FILTERS_PARAM "CapturePortFilters"
 #define TAPE_PROCESSORS_PARAM "TapeProcessors"
 #define CAPTURE_FILE_BATCH_SIZE_KBYTE_PARAM "CaptureFileBatchSizeKByte"
 #define CAPTURE_FILE_BATCH_SIZE_KBYTE_DEFAULT 64
@@ -182,11 +182,13 @@
 #define TLS_CLIENT_CERTCHECK_IGNORE_EXPIRY "TlsClientCACertCheckIgnoreExpiry"
 #define TLS_CLIENT_CERTCHECK_IGNORE_EXPIRY_DEFAULT true
 #endif
+#define FILTER_TIMEOUT_SEC "FilterTimeoutSec"
+#define FILTER_TIMEOUT_SEC_DEFAULT 600 // 10 minutes
 
 class DLL_IMPORT_EXPORT_ORKBASE Config : public Object
 {
 public:
-	Config();	
+	Config();
 	void Define(Serializer* s);
 	void Validate();
 
@@ -301,6 +303,7 @@ public:
 	CStdString m_tlsClientKeylogFile;
 	CStdString m_tlsClientCertFile;
 #endif
+	int m_filterTimeoutSec;
 private:
 	log4cxx::LoggerPtr m_log;
 	CStdString m_audioFilePermissionsStr;
