@@ -41,7 +41,6 @@ SRTFilter::SRTFilter(SimpleThreadPool &pool) :
 }
 
 SRTFilter::~SRTFilter() {
-	bool m_shouldStreamAllCalls;
 	if (m_silentChannelBuffer != NULL){
 		free(m_silentChannelBuffer);
 	}

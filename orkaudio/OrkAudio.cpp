@@ -467,6 +467,10 @@ void MainThread()
 	OrkLogManager::Instance()->Shutdown();
 }
 
+void signal_handler(int signum) {
+	Daemon::Singleton()->Stop();
+}
+
 int main(int argc, char* argv[])
 {
 
@@ -487,6 +491,7 @@ int main(int argc, char* argv[])
 	{
 		if ((argument.CompareNoCase("debug") == 0) || (argument.CompareNoCase("fg") == 0))
 		{
+			signal(SIGINT, signal_handler);
 			MainThread();
 		}
 		else if (argument.CompareNoCase("transcode") == 0)
