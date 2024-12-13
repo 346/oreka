@@ -46,9 +46,9 @@ cmake-build-debug/
 
 ##Makefile##
 Makefile.in
-config.h.in
+xconfig.h.in
 aclocal.m4
-config.h
+xconfig.h
 
 .deps
 .libs
